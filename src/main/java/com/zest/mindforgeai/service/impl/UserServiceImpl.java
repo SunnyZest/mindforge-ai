@@ -55,7 +55,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .setDeleted(0);
         save(user);
 
-        // 绑定默认角色 USER（mindforge-schema §11 已内置该角色）
+        // 绑定默认角色 USER（mindforge-schema §11 已内置该角色）,自动分配相应权限
         SysRole defaultRole = roleMapper.selectOne(
                 new LambdaQueryWrapper<SysRole>().eq(SysRole::getCode, RoleConstants.USER));
         if (defaultRole != null) {

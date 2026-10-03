@@ -27,7 +27,7 @@ public class JwtUtil {
     public JwtUtil(JwtProperties jwtProperties) {
         // 配置里存的是 Base64 字符串，必须 Base64 解码，不能用 getBytes()
         this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtProperties.getSecret()));
-        this.accessExpireMs = jwtProperties.getAccessTokenExpireMinutes() * 60_000L;
+        this.accessExpireMs = jwtProperties.getAccessTokenExpireMinutes() * 60_000L;    // _ 数字分隔符，易读
     }
 
     /**

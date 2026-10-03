@@ -32,9 +32,11 @@ public class TraceIdFilter extends OncePerRequestFilter {
 
         String traceId = request.getHeader(WebConstants.HEADER_REQUEST_ID);
         if (traceId == null || traceId.isBlank()) {
+            // 为空通过UUID生成12位traceId
             traceId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         }
 
+        // 将traceId添加到holder(slf4j提供的线程级Map)存起来，方便后续get
         TraceIdHolder.set(traceId);
         response.setHeader(WebConstants.HEADER_REQUEST_ID, traceId);
         try {
