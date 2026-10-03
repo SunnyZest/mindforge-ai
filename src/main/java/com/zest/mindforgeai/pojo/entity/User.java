@@ -1,5 +1,6 @@
 package com.zest.mindforgeai.pojo.entity;
 
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -62,6 +63,7 @@ public class User implements Serializable {
     private LocalDateTime updatedAt;
 
     @Schema(description = "账号是否已删除(逻辑)")
+    @TableLogic
     private Integer deleted;
 
 
