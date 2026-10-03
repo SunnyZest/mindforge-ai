@@ -1,0 +1,57 @@
+server:
+  port: 8080
+  servlet:
+    #   全局 /api 前缀：Controller 里只写 /app/**、/admin/**，不再重复写 /api
+    #   Nginx 侧 proxy_pass 不带尾斜杠、原样透传，因此 /api 必须由后端提供
+    context-path: /api
+
+spring:
+  application:
+    name: mindforge-ai
+  profiles:
+    active: dev
+  datasource:
+    druid:
+      driver-class-name: ${mindforge.datasource.driver-class-name}
+      url: jdbc:mysql://${mindforge.datasource.host}:${mindforge.datasource.port}/${mindforge.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+      username: ${mindforge.datasource.username}
+      password: ${mindforge.datasource.password}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    # 开发期打印 SQL，上线请移除
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+mindforge:
+  jwt:
+    # 由 com.zest.mindforgeai.SecretKeyGenerator 生成（Base64），生产环境用环境变量覆盖,通过环境变量MINDFORGE_JWT_SECRET
+    secret: ${mindforge.jwt.secret-prop}
+    # 文档 §5.4 的 expiresIn = 7200 秒
+    access-token-expire-minutes: ${mindforge.jwt.access-token-expire-minutes-prop}
+    refresh-token-expire-days: ${mindforge.jwt.refresh-token-expire-days-prop}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+  # 双前端架构：用户端 / 管理端分成两个分组，Knife4j 顶部会显示两个 tab
+  group-configs:
+    - group: 用户端
+      packages-to-scan: com.zest.mindforgeai.controller.user
+    - group: 管理端
+      packages-to-scan: com.zest.mindforgeai.controller.admin
+
+knife4j:
+  enable: true
+
+logging:
+  level:
+    com.zest.mindforgeai: debug

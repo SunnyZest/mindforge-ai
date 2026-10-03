@@ -43,7 +43,9 @@ Thumbs.db
 .env
 .env.*
 
-# Local configuration
+# Local configuration —— application.yml 使用占位符、不含明文，需要提交
+application-dev.yml
 application-local.yml
 application-local.yaml
 application-local.properties
+application.properties
