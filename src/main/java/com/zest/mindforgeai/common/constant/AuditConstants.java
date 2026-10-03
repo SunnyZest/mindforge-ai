@@ -48,10 +48,16 @@ public final class AuditConstants {
     /** 修改 AI 配置 */
     public static final String ACTION_AI_CONFIG_UPDATE = "AI_CONFIG_UPDATE";
 
+    /** 越权访问被拒绝（403） */
+    public static final String ACTION_ACCESS_DENIED = "ACCESS_DENIED";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
     public static final String RESOURCE_ROLE = "ROLE";
     public static final String RESOURCE_PERMISSION = "PERMISSION";
     public static final String RESOURCE_AI_CONFIG = "AI_CONFIG";
+
+    /** API 资源：用于记录「被拒绝的请求路径」，resourceId 存 URI */
+    public static final String RESOURCE_API = "API";
 }

@@ -48,6 +48,25 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public void record(String action, String resourceType, String resourceId,
                        boolean success, Object detail) {
+        // 操作人从 SecurityContext 取（普通业务接口走这条）
+        doRecord(currentUserId(), action, resourceType, resourceId, success, detail);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+    public void record(Long userId, String action, String resourceType, String resourceId,
+                       boolean success, Object detail) {
+        // 操作人由调用方显式指定（定时任务、异步线程等无 SecurityContext 的场景）
+        doRecord(userId, action, resourceType, resourceId, success, detail);
+    }
+
+    /**
+     * 真正的写入逻辑。
+     * <p>
+     * userId 由调用方决定来源（显式传入 或 从 SecurityContext 取），这里只负责组装与落库。
+     */
+    private void doRecord(Long userId, String action, String resourceType, String resourceId,
+                          boolean success, Object detail) {
         try {
             SysAuditLog audit = new SysAuditLog()
                     .setAction(action)
@@ -56,7 +75,7 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
                     .setResult(success ? AuditConstants.RESULT_SUCCESS : AuditConstants.RESULT_FAIL)
                     .setRequestId(TraceIdHolder.get())
                     .setDetailJson(toJson(detail))
-                    .setUserId(currentUserId());
+                    .setUserId(userId);
 
             fillRequestInfo(audit);
 

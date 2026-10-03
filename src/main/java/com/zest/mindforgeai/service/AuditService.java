@@ -33,6 +33,17 @@ public interface AuditService extends IService<SysAuditLog> {
     void record(String action, String resourceType, String resourceId,
                 boolean success, Object detail);
 
+    /**
+     * 记录一条审计日志，并<b>显式指定操作人</b>。
+     * <p>
+     * 用于拿不到 SecurityContext 的场景：定时任务、异步线程、消息消费者。
+     * 有 HTTP 请求上下文的普通业务接口请用不传 userId 的重载，它会自动从 SecurityContext 取。
+     *
+     * @param userId 操作人用户 id，可传 null 表示「系统自动触发」
+     */
+    void record(Long userId, String action, String resourceType, String resourceId,
+                boolean success, Object detail);
+
     /** 记录成功操作 */
     void recordSuccess(String action, String resourceType, String resourceId, Object detail);
 

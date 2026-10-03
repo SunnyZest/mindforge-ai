@@ -1,8 +1,11 @@
 package com.zest.mindforgeai.handler;
 
+import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.result.Result;
+import com.zest.mindforgeai.service.AuditService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -17,6 +20,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import java.util.Map;
+
 /**
  * 全局异常处理：统一转成 Result 返回前端
  *
@@ -26,6 +31,12 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private final AuditService auditService;
+
+    public GlobalExceptionHandler(AuditService auditService) {
+        this.auditService = auditService;
+    }
 
     /**
      * 业务异常。
@@ -42,24 +53,44 @@ public class GlobalExceptionHandler {
         return Result.fail(e.getCode(), e.getMessage());
     }
 
-    /** 账号密码错误 */
+    /**
+     * 账号密码错误 → 40101。
+     * <p>
+     * 这里只记「事件」，不记用户名 —— 用户名、IP、UA 等细节在 sys_audit_log 里，
+     * 用响应里的 traceId 关联（审计记录的 request_id 就是它）。
+     */
     @ExceptionHandler(BadCredentialsException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public Result<Void> handleBadCredentials(BadCredentialsException e) {
+        log.warn("登录失败：用户名或密码错误");
         return Result.fail(ErrorCode.UNAUTHORIZED, "用户名或密码错误");
     }
 
-    /** 账号被禁用 */
+    /** 账号被禁用 → 40301 */
     @ExceptionHandler(DisabledException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Result<Void> handleDisabled(DisabledException e) {
+        log.warn("登录失败：账号已被禁用");
         return Result.fail(ErrorCode.FORBIDDEN, "账号已被禁用");
     }
 
-    /** 方法级权限校验失败（@PreAuthorize） */
+    /**
+     * 方法级权限校验失败（{@code @PreAuthorize}）→ 40301。
+     * <p>
+     * 注意：URL 规则（{@code authorizeHttpRequests}）导致的 403 不会走到这里，
+     * 由 {@code JwtAccessDeniedHandler} 处理；两处都记审计。
+     */
     @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
-    public Result<Void> handleAccessDenied(AccessDeniedException e) {
+    public Result<Void> handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {
+        String method = request.getMethod();
+        String uri = request.getRequestURI();
+
+        log.warn("越权访问被拒绝（方法级 @PreAuthorize）：{} {}", method, uri);
+        auditService.recordFailure(AuditConstants.ACTION_ACCESS_DENIED,
+                AuditConstants.RESOURCE_API, uri,
+                Map.of("method", method, "reason", "方法级权限不足"));
+
         return Result.fail(ErrorCode.FORBIDDEN);
     }
 

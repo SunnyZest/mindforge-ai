@@ -16,6 +16,22 @@ import java.util.List;
  *
  * @author crx
  * @since 2026-10-03
+ *
+ *
+ * 日志：Global AuthenticationManager configured with UserDetailsService bean with name customUserDetailsService
+
+ * 流程是：
+ * UserDetailsServiceAutoConfiguration 发现你有 UserDetailsService bean → 不创建默认的内存用户
+ * InitializeUserDetailsBeanManagerConfigurer 把你的 CustomUserDetailsService + PasswordEncoder
+ * 组装成 DaoAuthenticationProvider 注册进 ProviderManager
+
+ *     DaoAuthenticationProvider 内部
+ *     ① loadUserByUsername → 查库加载用户（ CustomUserDetailsService）
+ *     ② 检查账号：isEnabled / isAccountNonLocked / isAccountNonExpired
+ *     ③ passwordEncoder.matches(原始密码, 库里的 BCrypt 哈希)　← 密码校验在这
+ *     ④ 检查密码是否过期：isCredentialsNonExpired
+ *     ⑤ 构造已认证的 Authentication，并擦除密码
+ *  返回 Authentication
  */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
