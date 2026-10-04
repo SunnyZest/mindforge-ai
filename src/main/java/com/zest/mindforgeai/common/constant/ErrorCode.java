@@ -22,6 +22,7 @@ public enum ErrorCode {
 
     FORBIDDEN(40301, "无权限"),
     RESOURCE_FORBIDDEN(40302, "无权访问该资源"),
+    ACCOUNT_DISABLED(40303, "账号已被禁用"),
 
     USER_NOT_FOUND(40401, "用户不存在"),
     RESOURCE_NOT_FOUND(40402, "资源不存在"),

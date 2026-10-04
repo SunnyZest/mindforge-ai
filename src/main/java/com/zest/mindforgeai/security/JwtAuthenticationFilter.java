@@ -1,11 +1,15 @@
 package com.zest.mindforgeai.security;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.constant.WebConstants;
+import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.utils.JwtUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -20,16 +24,20 @@ import java.io.IOException;
  * @author crx
  * @since 2026-10-03
  */
+@Slf4j
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final CustomUserDetailsService customUserDetailsService;
+    private final ObjectMapper objectMapper;
 
     public JwtAuthenticationFilter(JwtUtil jwtUtil,
-                                   CustomUserDetailsService customUserDetailsService) {
+                                   CustomUserDetailsService customUserDetailsService,
+                                   ObjectMapper objectMapper) {
         this.jwtUtil = jwtUtil;
         this.customUserDetailsService = customUserDetailsService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -62,6 +70,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
             LoginUser loginUser = customUserDetailsService.loadUserById(userId);
 
+            // ★ 账号已被禁用 → 直接拒绝，不写入 SecurityContext。
+            //
+            //   为什么必须在这里拦：isEnabled() 的检查原本只发生在登录时
+            //   （DaoAuthenticationProvider 内部），JWT 请求不走那条路径。
+            //   不拦的话，管理员禁用某用户后，他手里的 token 在剩余有效期内
+            //   （当前配置最长 30 分钟）仍然能正常访问。
+            //
+            //   为什么用 403 而不是 401：前端拦截器对 401 的反应是「用 refreshToken
+            //   换新 token 再重试」，而新 token 同样过不了这道检查 —— 会变成死循环。
+            //   403 + 独立错误码 40303 能让前端明确提示「账号已被禁用」并停止重试。
+            if (!loginUser.isEnabled()) {
+                log.warn("已禁用账号尝试访问：userId={} username={} uri={}",
+                        loginUser.getUserId(), loginUser.getUsername(), request.getRequestURI());
+                writeAccountDisabled(response);
+                return;
+            }
+
             UsernamePasswordAuthenticationToken authToken =
                     new UsernamePasswordAuthenticationToken(
                             loginUser,                        // principal：携带 userId + username + roles
@@ -75,5 +100,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // 4. 放行
         chain.doFilter(request, response);
+    }
+
+    /** 账号被禁用时的统一响应 */
+    private void writeAccountDisabled(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType(WebConstants.JSON_CONTENT_TYPE);
+        response.getWriter().write(objectMapper.writeValueAsString(
+                Result.fail(ErrorCode.ACCOUNT_DISABLED)));
     }
 }

@@ -71,7 +71,7 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Result<Void> handleDisabled(DisabledException e) {
         log.warn("登录失败：账号已被禁用");
-        return Result.fail(ErrorCode.FORBIDDEN, "账号已被禁用");
+        return Result.fail(ErrorCode.ACCOUNT_DISABLED);
     }
 
     /**
