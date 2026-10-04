@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.constant.RoleConstants;
 import com.zest.mindforgeai.common.exception.BizException;
+import com.zest.mindforgeai.mapper.PermissionMapper;
 import com.zest.mindforgeai.mapper.RoleMapper;
 import com.zest.mindforgeai.mapper.UserMapper;
 import com.zest.mindforgeai.mapper.UserRoleMapper;
@@ -30,13 +31,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final PasswordEncoder passwordEncoder;
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
+    private final PermissionMapper permissionMapper;
 
     public UserServiceImpl(PasswordEncoder passwordEncoder,
                            UserRoleMapper userRoleMapper,
-                           RoleMapper roleMapper) {
+                           RoleMapper roleMapper,
+                           PermissionMapper permissionMapper) {
         this.passwordEncoder = passwordEncoder;
         this.userRoleMapper = userRoleMapper;
         this.roleMapper = roleMapper;
+        this.permissionMapper = permissionMapper;
     }
 
     @Override
@@ -55,7 +59,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .setDeleted(0);
         save(user);
 
-        // 绑定默认角色 USER（mindforge-schema §11 已内置该角色）,自动分配相应权限
+        // 绑定默认角色 USER（mindforge-schema §11 已内置该角色），权限通过角色间接获得
         SysRole defaultRole = roleMapper.selectOne(
                 new LambdaQueryWrapper<SysRole>().eq(SysRole::getCode, RoleConstants.USER));
         if (defaultRole != null) {
@@ -73,21 +77,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public List<String> listRoleCodes(Long userId) {
-        List<Long> roleIds = userRoleMapper
-                .selectList(new LambdaQueryWrapper<SysUserRole>()
-                        .eq(SysUserRole::getUserId, userId))
-                .stream()
-                .map(SysUserRole::getRoleId)
-                .toList();
+        return roleMapper.selectCodesByUserId(userId);
+    }
 
-        if (roleIds.isEmpty()) {
-            return List.of();
-        }
-        return roleMapper.selectList(new LambdaQueryWrapper<SysRole>()
-                        .in(SysRole::getId, roleIds)
-                        .eq(SysRole::getStatus, 1))
-                .stream()
-                .map(SysRole::getCode)
-                .toList();
+    @Override
+    public List<String> listPermissionCodes(Long userId) {
+        return permissionMapper.selectCodesByUserId(userId);
     }
 }

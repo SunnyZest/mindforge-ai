@@ -3,12 +3,14 @@ package com.zest.mindforgeai.security;
 import com.zest.mindforgeai.common.constant.RoleConstants;
 import com.zest.mindforgeai.pojo.entity.User;
 import com.zest.mindforgeai.service.UserService;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -62,11 +64,16 @@ public class CustomUserDetailsService implements UserDetailsService {
     }
 
     private LoginUser toLoginUser(User user) {
-        // 角色来自 sys_user_role → sys_role；sys_user 表没有 role 列
-        List<SimpleGrantedAuthority> authorities = userService.listRoleCodes(user.getId())
-                .stream()
-                .map(code -> new SimpleGrantedAuthority(RoleConstants.ROLE_PREFIX + code))
-                .toList();
+        List<GrantedAuthority> authorities = new ArrayList<>();
+
+        // 角色：来自 sys_user_role → sys_role，加 ROLE_ 前缀供 hasRole / hasAnyRole 使用
+        userService.listRoleCodes(user.getId())
+                .forEach(code -> authorities.add(
+                        new SimpleGrantedAuthority(RoleConstants.ROLE_PREFIX + code)));
+
+        // 权限码：原样加入，供 hasAuthority('app:knowledge:read') / @PreAuthorize 使用
+        userService.listPermissionCodes(user.getId())
+                .forEach(code -> authorities.add(new SimpleGrantedAuthority(code)));
 
         return new LoginUser(
                 user.getId(),

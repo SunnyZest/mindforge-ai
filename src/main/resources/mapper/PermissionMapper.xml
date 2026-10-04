@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.PermissionMapper">
+
+    <!--
+      查询用户拥有的权限 code 列表：用户 → 角色 → 角色权限 → 权限
+
+      注意：
+      1. 表之间没有外键，关联全部写在 SQL 里
+      2. DISTINCT 用于用户拥有多个角色时的去重（多角色可能含同一条权限）
+      3. 自定义 SQL 不经过 MyBatis-Plus 的逻辑删除，sys_role 的 deleted 需手动过滤
+      4. sys_permission 表没有 deleted 列，无需过滤
+    -->
+    <select id="selectCodesByUserId" resultType="java.lang.String">
+        SELECT DISTINCT p.code
+        FROM sys_user_role ur
+        JOIN sys_role r ON r.id = ur.role_id
+                       AND r.status = 1
+                       AND r.deleted = 0
+        JOIN sys_role_permission rp ON rp.role_id = ur.role_id
+        JOIN sys_permission p ON p.id = rp.permission_id
+        WHERE ur.user_id = #{userId}
+    </select>
+
+</mapper>

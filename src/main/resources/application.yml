@@ -18,6 +18,9 @@ spring:
       password: ${mindforge.datasource.password}
 
 mybatis-plus:
+  # 复杂 SQL 写在这里的 XML 中（简单查询仍可用注解，但建议统一走 XML）
+  # 这是 MP 的默认值，写出来是为了明确 XML 的存放位置
+  mapper-locations: classpath*:/mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
     # 开发期打印 SQL，上线请移除
@@ -33,9 +36,16 @@ mindforge:
   jwt:
     # 由 com.zest.mindforgeai.SecretKeyGenerator 生成（Base64），生产环境用环境变量覆盖,通过环境变量MINDFORGE_JWT_SECRET
     secret: ${mindforge.jwt.secret-prop}
-    # 文档 §5.4 的 expiresIn = 7200 秒
+    # accessToken 有效期（分钟）。
+    # 有了 refresh 机制后刻意设短：泄露窗口小，过期由前端用 refreshToken 无感续期。
+    # 注意：已从 120 缩到 30
     access-token-expire-minutes: ${mindforge.jwt.access-token-expire-minutes-prop}
+    # refreshToken 有效期（天）。安全性靠「可撤销」，不靠短有效期。
     refresh-token-expire-days: ${mindforge.jwt.refresh-token-expire-days-prop}
+
+  task:
+    # 清理过期 refreshToken 的 cron（默认每天 03:10）
+    refresh-token-cleanup-cron: 0 10 3 * * ?
 
 springdoc:
   api-docs:

@@ -33,7 +33,13 @@ public class SecurityConfig {
     private static final String[] PUBLIC_URLS = {
             "/app/auth/login",
             "/app/auth/register",
+            // refresh：access token 已过期，靠 body 里的 refreshToken 认证
+            // logout：靠 body 里的 refreshToken 认证，不依赖 access token
+            "/app/auth/refresh",
+            "/app/auth/logout",
             "/admin/auth/login",
+            "/admin/auth/refresh",
+            "/admin/auth/logout",
             // 接口文档
             "/doc.html",
             "/webjars/**",

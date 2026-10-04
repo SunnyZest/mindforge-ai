@@ -25,4 +25,7 @@ public interface UserService extends IService<User> {
 
     /** 查询用户的角色 code 列表（sys_user_role → sys_role） */
     List<String> listRoleCodes(Long userId);
+
+    /** 查询用户的权限 code 列表（sys_user_role → sys_role_permission → sys_permission） */
+    List<String> listPermissionCodes(Long userId);
 }

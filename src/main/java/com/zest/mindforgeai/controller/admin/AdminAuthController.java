@@ -6,12 +6,16 @@ import com.zest.mindforgeai.common.constant.RoleConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.LoginDTO;
+import com.zest.mindforgeai.pojo.dto.RefreshTokenDTO;
 import com.zest.mindforgeai.pojo.entity.User;
 import com.zest.mindforgeai.pojo.vo.LoginVO;
+import com.zest.mindforgeai.pojo.vo.TokenVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.RefreshTokenService;
 import com.zest.mindforgeai.service.UserService;
 import com.zest.mindforgeai.utils.JwtUtil;
+import com.zest.mindforgeai.utils.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,6 +26,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,7 +43,6 @@ import java.util.Map;
  */
 @Slf4j
 @Tag(name = "管理端-认证")
-@SecurityRequirements   // 公开接口：管理端登录无需认证，摘掉文档上的锁标记
 @RestController
 @RequestMapping("/admin/auth")
 public class AdminAuthController {
@@ -47,18 +51,22 @@ public class AdminAuthController {
     private final JwtUtil jwtUtil;
     private final UserService userService;
     private final AuditService auditService;
+    private final RefreshTokenService refreshTokenService;
 
     public AdminAuthController(AuthenticationManager authenticationManager,
                                JwtUtil jwtUtil,
                                UserService userService,
-                               AuditService auditService) {
+                               AuditService auditService,
+                               RefreshTokenService refreshTokenService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
         this.auditService = auditService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     @Operation(summary = "管理员登录")
+    @SecurityRequirements   // 公开接口：登录无需认证，摘掉文档上的锁标记
     @PostMapping("/login")
     public Result<LoginVO> login(@Valid @RequestBody LoginDTO dto) {
         /**
@@ -109,9 +117,78 @@ public class AdminAuthController {
 
         LoginVO vo = new LoginVO();
         vo.setAccessToken(jwtUtil.generateAccessToken(user.getId(), user.getUsername(), roles));
-        vo.setRefreshToken(null);                       // 阶段 3 实现
+        vo.setRefreshToken(refreshTokenService.issue(user.getId()));
         vo.setExpiresIn(jwtUtil.getAccessExpireSeconds());
-        vo.setUser(UserInfoVO.of(user, roles, List.of()));
+        vo.setUser(UserInfoVO.of(user, roles,
+                userService.listPermissionCodes(user.getId())));
         return Result.success(vo);
+    }
+
+    /**
+     * 获取当前登录管理员信息。
+     * <p>
+     * 与用户端 {@code /app/auth/me} 对称。由于 {@code /admin/**} 要求 ADMIN / SUPER_ADMIN，
+     * 普通用户访问这里会先被 SecurityConfig 拦成 403，而不是 401。
+     */
+    @Operation(summary = "获取当前登录管理员信息")
+    @GetMapping("/me")
+    public Result<UserInfoVO> me() {
+        Long userId = SecurityUtils.getUserId();
+
+        User user = userService.getById(userId);
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        List<String> roles = userService.listRoleCodes(userId);
+        List<String> permissions = userService.listPermissionCodes(userId);
+
+        log.debug("查询当前登录管理员信息 userId={} username={} roles={} permissions={}",
+                userId, user.getUsername(), roles, permissions.size());
+
+        return Result.success(UserInfoVO.of(user, roles, permissions));
+    }
+
+    /**
+     * 刷新 access token（与用户端 {@code /app/auth/refresh} 逻辑一致）。
+     * <p>
+     * 公开接口：access token 已过期，只能靠 body 里的 refreshToken 认证。
+     * 轮换策略：旧的 refreshToken 立即作废。
+     */
+    @Operation(summary = "刷新 access token")
+    @SecurityRequirements   // 公开接口：access token 已过期，靠 refreshToken 认证
+    @PostMapping("/refresh")
+    public Result<TokenVO> refresh(@Valid @RequestBody RefreshTokenDTO dto) {
+        RefreshTokenService.RefreshResult result =
+                refreshTokenService.refresh(dto.getRefreshToken());
+
+        User user = userService.getById(result.userId());
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+        List<String> roles = userService.listRoleCodes(result.userId());
+
+        log.debug("刷新 access token（管理端）userId={} username={}",
+                result.userId(), user.getUsername());
+
+        TokenVO vo = new TokenVO();
+        vo.setAccessToken(jwtUtil.generateAccessToken(user.getId(), user.getUsername(), roles));
+        vo.setRefreshToken(result.refreshToken());
+        vo.setExpiresIn(jwtUtil.getAccessExpireSeconds());
+        return Result.success(vo);
+    }
+
+    /**
+     * 管理员登出（与用户端 {@code /app/auth/logout} 逻辑一致）。
+     * <p>
+     * 撤销 body 里的 refreshToken，不依赖 access token。
+     */
+    @Operation(summary = "管理员登出")
+    @SecurityRequirements   // 公开接口：靠 body 里的 refreshToken 认证
+    @PostMapping("/logout")
+    public Result<Void> logout(@Valid @RequestBody RefreshTokenDTO dto) {
+        refreshTokenService.revoke(dto.getRefreshToken());
+        log.info("管理员登出");
+        return Result.success();
     }
 }
