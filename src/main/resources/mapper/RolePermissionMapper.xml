@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.RolePermissionMapper">
+
+    <!--
+      统计每个角色已绑定的权限数量
+
+      用途：角色列表页一次查出所有角色的权限数，避免逐个角色查询造成 N+1。
+      注意：sys_role_permission 没有 deleted 列，全部记录都算有效绑定。
+    -->
+    <select id="selectPermissionCountGroupByRole" resultType="com.zest.mindforgeai.pojo.vo.RolePermissionCountVO">
+        SELECT rp.role_id AS roleId,
+               COUNT(*)   AS cnt
+        FROM sys_role_permission rp
+        GROUP BY rp.role_id
+    </select>
+
+</mapper>

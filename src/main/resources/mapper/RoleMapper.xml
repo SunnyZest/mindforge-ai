@@ -19,4 +19,17 @@
           AND r.deleted = 0
     </select>
 
+    <!--
+      唯一性检查：统计同 code 的角色数，【故意不过滤 deleted】
+
+      原因：sys_role 上有 uk_role_code 唯一索引，数据库唯一约束不管逻辑删除 ——
+      逻辑删除过的角色仍然占着那个 code。所以「角色 code 永久占用」是既定规则，
+      检查时必须把已删除的角色也算上，才能给出准确提示。
+    -->
+    <select id="countByCodeIgnoreDeleted" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_role
+        WHERE code = #{code}
+    </select>
+
 </mapper>
