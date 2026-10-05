@@ -103,6 +103,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, KnowledgeBaseUpdateDTO dto) {
+        // 先根据id查询到对应知识库，主要是审计用
         KnowledgeBase kb = requireOwned(id);
 
         // MP 默认策略：null 字段不进 UPDATE → 天然支持局部更新
@@ -157,6 +158,11 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     public KnowledgeBaseStatsVO getStats(Long id) {
         requireOwned(id);
         return baseMapper.selectStats(id);
+    }
+
+    @Override
+    public KnowledgeBase getOwned(Long id) {
+        return requireOwned(id);
     }
 
     /* ---------- 内部工具 ---------- */

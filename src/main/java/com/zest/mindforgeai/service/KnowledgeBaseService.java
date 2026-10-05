@@ -38,4 +38,11 @@ public interface KnowledgeBaseService extends IService<KnowledgeBase> {
 
     /** 知识库统计（校验归属） */
     KnowledgeBaseStatsVO getStats(Long id);
+
+    /**
+     * 取知识库并校验归属 —— 供其他业务模块复用（如文档模块上传前校验知识库是不是你的）。
+     * <p>
+     * 不存在 → 40403；存在但不属于当前用户 → 40302。
+     */
+    KnowledgeBase getOwned(Long id);
 }

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.SysFileMapper">
+
+    <!--
+      查出「已逻辑删除且超过恢复窗口」的记录（后台清理任务的候选集）
+
+      ⚠️ 这里必须写自定义 SQL：MyBatis-Plus 会给它自己生成的 SQL 加 deleted = 0，
+         而我们要查的正是 deleted = 1 的记录。
+
+      注意 deleted_at 用 <= 而不是 <，边界上多清理一点无所谓。
+
+      ⚠️ NOT EXISTS 那一段很关键：它把「还被引用」的记录直接排除在候选集之外。
+         如果只在 Java 里跳过，那么这批记录永远留在结果集里，
+         分批循环时每轮都拿到同一批 → 死循环。
+    -->
+    <select id="selectPurgeable" resultType="com.zest.mindforgeai.pojo.entity.SysFile">
+        SELECT sf.id,
+               sf.user_id,
+               sf.original_name,
+               sf.object_key,
+               sf.bucket_name,
+               sf.content_type,
+               sf.file_size,
+               sf.content_hash,
+               sf.storage_type,
+               sf.created_at,
+               sf.deleted,
+               sf.deleted_at
+        FROM sys_file sf
+        WHERE sf.deleted = 1
+          AND sf.deleted_at IS NOT NULL
+          AND sf.deleted_at &lt;= #{cutoff}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM sys_file other
+              WHERE other.object_key = sf.object_key
+                AND (other.deleted = 0
+                     OR other.deleted_at IS NULL
+                     OR other.deleted_at &gt; #{cutoff})
+          )
+        ORDER BY sf.deleted_at
+        LIMIT #{limit}
+    </select>
+
+    <!-- 物理删除（绕过 MP 逻辑删除），清理任务专用 -->
+    <delete id="physicalDeleteById">
+        DELETE FROM sys_file WHERE id = #{id}
+    </delete>
+
+</mapper>

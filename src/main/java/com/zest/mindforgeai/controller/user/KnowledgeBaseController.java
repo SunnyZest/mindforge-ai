@@ -89,7 +89,7 @@ public class KnowledgeBaseController {
         return Result.success();
     }
 
-    @Operation(summary = "知识库统计")
+    @Operation(summary = "知识库统计，文档数 / 分块数 / 完成数 / 失败数")
     @GetMapping("/{id}/stats")
     @PreAuthorize("hasAuthority('app:knowledge:read')")
     public Result<KnowledgeBaseStatsVO> stats(@PathVariable Long id) {

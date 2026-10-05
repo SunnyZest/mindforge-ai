@@ -60,6 +60,12 @@ public final class AuditConstants {
     /** 删除知识库 */
     public static final String ACTION_KB_DELETE = "KB_DELETE";
 
+    /** 上传文档 */
+    public static final String ACTION_DOCUMENT_UPLOAD = "DOCUMENT_UPLOAD";
+
+    /** 删除文档 */
+    public static final String ACTION_DOCUMENT_DELETE = "DOCUMENT_DELETE";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
