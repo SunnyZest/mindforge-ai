@@ -14,11 +14,15 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
@@ -124,13 +128,52 @@ public class GlobalExceptionHandler {
 
     /**
      * 路径不存在 → 404。
-     * Spring Boot 3.2+ 访问未映射的路径会抛 NoResourceFoundException，
+     * <p>
+     * Spring Boot 3.2+ 访问未映射的路径会抛 {@code NoResourceFoundException}，
      * 若不单独处理会被下面的兜底抓成 500，让前端误判为服务端故障。
      */
     @ExceptionHandler(NoResourceFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public Result<Void> handleNoResource(NoResourceFoundException e) {
         return Result.fail(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+
+    /**
+     * 路径存在但请求方法不对 → 405。
+     * <p>
+     * 典型场景：只实现了 {@code DELETE /documents/{id}}，前端却发 {@code GET /documents/{id}} ——
+     * 路径能匹配上，方法匹配不上，Spring 抛这个异常。
+     * <b>不加这个 handler 会被兜底成 500</b>，前端会以为是服务端故障。
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+    public Result<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException e,
+                                                 HttpServletRequest request) {
+        log.warn("请求方法不支持：{} {}，该路径支持 {}",
+                request.getMethod(), request.getRequestURI(), e.getSupportedHttpMethods());
+        return Result.fail(ErrorCode.METHOD_NOT_ALLOWED);
+    }
+
+    /**
+     * 上传文件超过大小上限 → 413。
+     * <p>
+     * 上限配在 {@code spring.servlet.multipart.max-file-size}（当前 50MB）。
+     * 不加这个 handler 会被兜底成 500 —— 而用户看到的应该是一个明确的「文件过大」。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+    public Result<Void> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        log.warn("上传文件超过大小上限：{}", e.getMessage());
+        return Result.fail(ErrorCode.FILE_TOO_LARGE);
+    }
+
+    /**
+     * multipart 请求缺少必需的 part（比如上传接口没带 {@code file} 字段）→ 400。
+     */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleMissingPart(MissingServletRequestPartException e) {
+        return Result.fail(ErrorCode.PARAM_INVALID, "缺少必要的上传字段：" + e.getRequestPartName());
     }
 
     /** 请求体格式错误 / JSON 解析失败 → 40002 */
@@ -145,6 +188,13 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
         return Result.fail(ErrorCode.PARAM_INVALID, "参数 " + e.getName() + " 类型不正确");
+    }
+
+    /** 缺少必需的查询参数 → 40001 */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleMissingParam(MissingServletRequestParameterException e) {
+        return Result.fail(ErrorCode.PARAM_INVALID, "缺少必要参数：" + e.getParameterName());
     }
 
     /** 兜底 */

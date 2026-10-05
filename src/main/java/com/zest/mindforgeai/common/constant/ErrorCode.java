@@ -29,6 +29,8 @@ public enum ErrorCode {
     KNOWLEDGE_BASE_NOT_FOUND(40403, "知识库不存在"),
     DOCUMENT_NOT_FOUND(40404, "文档不存在"),
 
+    METHOD_NOT_ALLOWED(40501, "请求方法不支持"),
+
     USER_ALREADY_EXISTS(40901, "用户已存在"),
     STATUS_CONFLICT(40902, "资源状态冲突"),
 
