@@ -1,6 +1,7 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
@@ -61,14 +62,15 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
-        LambdaQueryWrapper<KnowledgeBase> wrapper = new LambdaQueryWrapper<KnowledgeBase>()
-                // ★ 只查自己的（文档 §十五 的硬性要求）
-                .eq(KnowledgeBase::getUserId, SecurityUtils.getUserId())
-                .eq(status != null, KnowledgeBase::getStatus, status)
-                .like(StringUtils.hasText(keyword), KnowledgeBase::getName, keyword)
-                .orderByDesc(KnowledgeBase::getId);
-
-        Page<KnowledgeBase> result = page(new Page<>(safePage, safeSize), wrapper);
+        // 用自定义查询而不是 MP 的 wrapper：
+        // 表里的 document_count 冗余字段无人维护（永远是 0），这里改成实时 COUNT，
+        // 保证列表和 stats 接口的口径一致。
+        // 归属校验（user_id）也写在 SQL 里，不依赖上层。
+        IPage<KnowledgeBase> result = baseMapper.selectPageWithDocumentCount(
+                new Page<>(safePage, safeSize),
+                SecurityUtils.getUserId(),
+                keyword,
+                status);
 
         return PageResultVO.of(result,
                 result.getRecords().stream().map(KnowledgeBaseVO::of).toList());

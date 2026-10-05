@@ -4,6 +4,45 @@
 <mapper namespace="com.zest.mindforgeai.mapper.KnowledgeBaseMapper">
 
     <!--
+      知识库分页列表（document_count 实时计算）
+
+      ⚠️ 为什么不直接查 kb.* ：
+        knowledge_base 表里有个 document_count 冗余字段，但没有任何地方维护它（永远是 0）。
+        如果 kb.* 和下面的子查询别名都叫 document_count，两列会重名、映射结果不确定。
+        所以这里【显式列出字段】，document_count 只取自子查询。
+
+      ⚠️ 归属校验直接写在 SQL 里（kb.user_id = #{userId}），
+        这样即使上层忘了校验，也查不出别人的数据。
+
+      索引：knowledge_base 有 idx_kb_user (user_id) 与 idx_kb_status (user_id, status)，
+           document 有 (knowledge_base_id) 相关索引，子查询走索引。
+    -->
+    <select id="selectPageWithDocumentCount" resultType="com.zest.mindforgeai.pojo.entity.KnowledgeBase">
+        SELECT kb.id,
+               kb.user_id,
+               kb.name,
+               kb.description,
+               kb.status,
+               (SELECT COUNT(*)
+                  FROM document d
+                 WHERE d.knowledge_base_id = kb.id
+                   AND d.deleted = 0)      AS document_count,
+               kb.created_at,
+               kb.updated_at,
+               kb.deleted
+        FROM knowledge_base kb
+        WHERE kb.deleted = 0
+          AND kb.user_id = #{userId}
+        <if test="status != null">
+          AND kb.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+          AND kb.name LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        ORDER BY kb.id DESC
+    </select>
+
+    <!--
       知识库统计：文档数 / 分块数 / 完成数 / 失败数
 
       注意：
