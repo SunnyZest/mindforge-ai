@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.KnowledgeBaseMapper">
+
+    <!--
+      知识库统计：文档数 / 分块数 / 完成数 / 失败数
+
+      注意：
+      1. document 有 deleted 列，自定义 SQL 不过滤它 —— 这里手动加 deleted = 0
+      2. document_chunk 没有 deleted 列，直接全量统计
+      3. 用子查询一次返回 4 个指标，避免 4 次数据库往返
+    -->
+    <select id="selectStats" resultType="com.zest.mindforgeai.pojo.vo.KnowledgeBaseStatsVO">
+        SELECT
+            (SELECT COUNT(*) FROM document
+              WHERE knowledge_base_id = #{knowledgeBaseId}
+                AND deleted = 0)                                   AS documentCount,
+            (SELECT COUNT(*) FROM document_chunk
+              WHERE knowledge_base_id = #{knowledgeBaseId})        AS chunkCount,
+            (SELECT COUNT(*) FROM document
+              WHERE knowledge_base_id = #{knowledgeBaseId}
+                AND deleted = 0
+                AND parse_status = 'SUCCESS')                      AS completedDocuments,
+            (SELECT COUNT(*) FROM document
+              WHERE knowledge_base_id = #{knowledgeBaseId}
+                AND deleted = 0
+                AND parse_status = 'FAILED')                       AS failedDocuments
+    </select>
+
+</mapper>

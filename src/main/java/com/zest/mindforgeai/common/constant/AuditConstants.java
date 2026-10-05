@@ -51,6 +51,15 @@ public final class AuditConstants {
     /** 越权访问被拒绝（403） */
     public static final String ACTION_ACCESS_DENIED = "ACCESS_DENIED";
 
+    /** 创建知识库 */
+    public static final String ACTION_KB_CREATE = "KB_CREATE";
+
+    /** 修改知识库 */
+    public static final String ACTION_KB_UPDATE = "KB_UPDATE";
+
+    /** 删除知识库 */
+    public static final String ACTION_KB_DELETE = "KB_DELETE";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
@@ -60,4 +69,7 @@ public final class AuditConstants {
 
     /** API 资源：用于记录「被拒绝的请求路径」，resourceId 存 URI */
     public static final String RESOURCE_API = "API";
+
+    public static final String RESOURCE_KNOWLEDGE_BASE = "KNOWLEDGE_BASE";
+    public static final String RESOURCE_DOCUMENT = "DOCUMENT";
 }
