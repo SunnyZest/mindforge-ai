@@ -1,11 +1,15 @@
 package com.zest.mindforgeai.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.context.TraceIdHolder;
 import com.zest.mindforgeai.mapper.AuditLogMapper;
 import com.zest.mindforgeai.pojo.entity.SysAuditLog;
+import com.zest.mindforgeai.pojo.vo.AuditLogVO;
+import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.security.LoginUser;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.utils.SecurityUtils;
@@ -17,6 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 审计日志服务实现
@@ -33,6 +40,9 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
     private static final String HEADER_REAL_IP = "X-Real-IP";
     private static final String HEADER_USER_AGENT = "User-Agent";
     private static final String UNKNOWN = "unknown";
+
+    /** 单页上限，防止前端传个超大 pageSize 拖垮数据库 */
+    private static final long MAX_PAGE_SIZE = 100;
 
     private final ObjectMapper objectMapper;
 
@@ -95,6 +105,32 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
     @Override
     public void recordFailure(String action, String resourceType, String resourceId, Object detail) {
         record(action, resourceType, resourceId, false, detail);
+    }
+
+    @Override
+    public PageResultVO<AuditLogVO> pageLogs(long page, long pageSize,
+                                             Long userId, String action, String resourceType,
+                                             String result, LocalDateTime from, LocalDateTime to) {
+        long safePage = Math.max(1, page);
+        long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
+
+        LambdaQueryWrapper<SysAuditLog> wrapper = new LambdaQueryWrapper<SysAuditLog>()
+                .eq(userId != null, SysAuditLog::getUserId, userId)
+                .eq(StringUtils.hasText(action), SysAuditLog::getAction, action)
+                .eq(StringUtils.hasText(resourceType), SysAuditLog::getResourceType, resourceType)
+                .eq(StringUtils.hasText(result), SysAuditLog::getResult, result)
+                .ge(from != null, SysAuditLog::getCreatedAt, from)
+                .le(to != null, SysAuditLog::getCreatedAt, to)
+                // 按 id 倒序而不是 createdAt：同一秒内多条时 id 才能保证稳定顺序
+                .orderByDesc(SysAuditLog::getId);
+
+        Page<SysAuditLog> pageResult = page(new Page<>(safePage, safeSize), wrapper);
+
+        List<AuditLogVO> records = pageResult.getRecords().stream()
+                .map(AuditLogVO::of)
+                .toList();
+
+        return PageResultVO.of(pageResult, records);
     }
 
     /** 当前登录用户 id；未登录（如登录失败）返回 null */

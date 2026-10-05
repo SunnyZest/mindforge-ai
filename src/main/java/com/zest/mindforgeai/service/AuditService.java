@@ -2,6 +2,10 @@ package com.zest.mindforgeai.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.zest.mindforgeai.pojo.entity.SysAuditLog;
+import com.zest.mindforgeai.pojo.vo.AuditLogVO;
+import com.zest.mindforgeai.pojo.vo.PageResultVO;
+
+import java.time.LocalDateTime;
 
 /**
  * 审计日志服务。
@@ -49,4 +53,20 @@ public interface AuditService extends IService<SysAuditLog> {
 
     /** 记录失败操作（登录失败、越权尝试等） */
     void recordFailure(String action, String resourceType, String resourceId, Object detail);
+
+    /**
+     * 分页查询审计日志，供管理端 {@code admin:audit:list} 使用。
+     * <p>
+     * 审计记录<b>只读不写</b> —— 不提供删除接口，否则审计的意义就没了。
+     *
+     * @param userId       按操作人筛选，可空
+     * @param action       按动作筛选，可空
+     * @param resourceType 按资源类型筛选，可空
+     * @param result       按结果筛选（SUCCESS / FAIL），可空
+     * @param from         起始时间（含），可空
+     * @param to           结束时间（含），可空
+     */
+    PageResultVO<AuditLogVO> pageLogs(long page, long pageSize,
+                                      Long userId, String action, String resourceType,
+                                      String result, LocalDateTime from, LocalDateTime to);
 }
