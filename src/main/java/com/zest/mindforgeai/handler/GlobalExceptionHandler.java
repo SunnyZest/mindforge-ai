@@ -8,6 +8,7 @@ import com.zest.mindforgeai.service.AuditService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -51,6 +52,23 @@ public class GlobalExceptionHandler {
         response.setStatus(status >= 100 && status <= 599 ? status : 500);
         log.warn("业务异常 code={} message={}", e.getCode(), e.getMessage());
         return Result.fail(e.getCode(), e.getMessage());
+    }
+
+    /**
+     * 唯一约束冲突 → 40902。
+     * <p>
+     * <b>为什么需要这层兜底</b>：业务代码里的「唯一性检查」通常查的是「未逻辑删除」的记录
+     * （MyBatis-Plus 会自动加 {@code deleted = 0}），但数据库的 UNIQUE 索引<b>不管逻辑删除</b>。
+     * 所以「先逻辑删掉、再用同名重建」这种场景会绕过业务检查，直接撞到索引上。
+     * <p>
+     * 另外，业务检查在并发下必然有竞态窗口，只有数据库约束是最终防线。
+     * 各 Service 保留业务级检查是为了给出更友好的提示，这里是兜底。
+     */
+    @ExceptionHandler(DuplicateKeyException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Result<Void> handleDuplicateKey(DuplicateKeyException e) {
+        log.warn("唯一约束冲突：{}", e.getMessage());
+        return Result.fail(ErrorCode.STATUS_CONFLICT, "数据已存在，请检查是否有重复");
     }
 
     /**

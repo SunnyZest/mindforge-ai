@@ -16,6 +16,7 @@ import com.zest.mindforgeai.service.UserService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 
@@ -46,8 +47,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     @Transactional(rollbackFor = Exception.class)
     public User register(String username, String email, String rawPassword) {
-        if (getByUsername(username) != null) {
+        // 用「包含已逻辑删除」的统计做唯一性检查：
+        // user 表有 uk_user_username / uk_user_email 唯一索引，而唯一约束不管逻辑删除，
+        // 所以用户名和邮箱是【永久占用】的 —— 已注销账号的名字也不能再注册（类似 GitHub，防冒名）。
+        // 若改用 MP 的 getByUsername()（自动加 deleted = 0），会漏掉已删除的记录，
+        // 检查通过后直接撞索引，只能靠 GlobalExceptionHandler 兜底给个模糊提示。
+        if (baseMapper.countByUsernameIgnoreDeleted(username) > 0) {
             throw new BizException(ErrorCode.USER_ALREADY_EXISTS, "用户名已存在");
+        }
+        if (StringUtils.hasText(email) && baseMapper.countByEmailIgnoreDeleted(email) > 0) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT, "邮箱已被使用");
         }
 
         User user = new User()

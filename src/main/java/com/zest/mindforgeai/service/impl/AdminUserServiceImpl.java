@@ -133,14 +133,12 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             throw new BizException(ErrorCode.USER_NOT_FOUND);
         }
 
-        // 改了邮箱才做唯一性校验（没有外键，唯一性只能靠代码保证）
-        if (StringUtils.hasText(dto.getEmail()) && !dto.getEmail().equals(user.getEmail())) {
-            boolean taken = count(new LambdaQueryWrapper<User>()
-                    .eq(User::getEmail, dto.getEmail())
-                    .ne(User::getId, userId)) > 0;
-            if (taken) {
-                throw new BizException(ErrorCode.STATUS_CONFLICT, "邮箱已被其他用户使用");
-            }
+        // 改了邮箱才做唯一性校验。
+        // 用「包含已逻辑删除」的统计 —— uk_user_email 唯一约束不管逻辑删除，邮箱是永久占用的。
+        // 这里无需排除自己：上面已确保新邮箱与当前邮箱不同，统计结果必然不含自己。
+        if (StringUtils.hasText(dto.getEmail()) && !dto.getEmail().equals(user.getEmail())
+                && baseMapper.countByEmailIgnoreDeleted(dto.getEmail()) > 0) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT, "邮箱已被其他用户使用");
         }
 
         // MyBatis-Plus 默认策略：null 字段不进 UPDATE 语句 → 天然支持局部更新
@@ -197,17 +195,20 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             }
         }
 
+        // 拿到角色对应的code：“User”、"admin"
         List<String> before = userService.listRoleCodes(userId);
 
         // ⚠️ 没有外键级联：必须手动「先清后插」，且与下面两步同在一个事务里
         userRoleMapper.delete(new LambdaQueryWrapper<SysUserRole>()
                 .eq(SysUserRole::getUserId, userId));
         for (Long roleId : targetRoleIds) {
+            // 分配角色
             userRoleMapper.insert(new SysUserRole()
                     .setUserId(userId)
                     .setRoleId(roleId));
         }
 
+        // 分配后的角色
         List<String> after = userService.listRoleCodes(userId);
         log.info("分配角色 userId={} {} -> {}", userId, before, after);
 

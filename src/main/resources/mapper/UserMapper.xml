@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.UserMapper">
+
+    <!--
+      唯一性检查：统计同名用户数，【故意不过滤 deleted】
+
+      原因：user 表上有 uk_user_username / uk_user_email 唯一索引，
+      数据库的唯一约束不管逻辑删除 —— 逻辑删除过的记录仍然占着那个值。
+      所以「用户名 / 邮箱永久占用」是本项目的既定规则，
+      检查时必须把已删除的记录也算上，才能给出准确提示（而不是撞索引后走兜底）。
+    -->
+    <select id="countByUsernameIgnoreDeleted" resultType="int">
+        SELECT COUNT(*)
+        FROM user
+        WHERE username = #{username}
+    </select>
+
+    <select id="countByEmailIgnoreDeleted" resultType="int">
+        SELECT COUNT(*)
+        FROM user
+        WHERE email = #{email}
+    </select>
+
+</mapper>
