@@ -37,6 +37,8 @@ public interface AdminUserService {
     /** 启用（1）或禁用（0）用户 */
     void updateStatus(Long userId, Integer status);
 
-    /** 全量覆盖用户的角色（不是追加） */
+    /** 全量覆盖用户的角色（不是追加）
+     * roleIds: 角色对应的id
+     */
     void assignRoles(Long userId, List<Long> roleIds);
 }
