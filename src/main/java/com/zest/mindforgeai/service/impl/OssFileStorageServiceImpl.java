@@ -40,6 +40,7 @@ public class OssFileStorageServiceImpl implements FileStorageService {
 
     @Override
     public StoredFileVO upload(String objectKey, byte[] content, String contentType) {
+        // 拿到bucket
         String bucket = props.getOss().getBucket();
 
         ObjectMetadata metadata = new ObjectMetadata();

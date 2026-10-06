@@ -59,6 +59,7 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
             throw new BizException(ErrorCode.SYSTEM_ERROR, "读取上传文件失败");
         }
 
+        // 相同内容得到的hash值相同
         String hash = HashUtils.sha256Hex(content);
         String originalName = StringUtils.hasText(file.getOriginalFilename())
                 ? file.getOriginalFilename()
@@ -72,6 +73,7 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
                 .eq(SysFile::getContentHash, hash)
                 .last("LIMIT 1"));
 
+        // 文件已上传过，直接将当前文件信息返回
         if (existing != null) {
             log.info("秒传命中 userId={} hash={} 复用 objectKey={}",
                     userId, hash, existing.getObjectKey());
@@ -80,11 +82,14 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
                     file.getContentType(), content.length, hash);
         }
 
+        // 文件未上传
         String objectKey = buildObjectKey(bizType, userId, originalName);
+        // 上传到阿里OSS
         StoredFileVO stored = storageService.upload(objectKey, content, file.getContentType());
 
         log.info("文件上传成功 userId={} objectKey={} size={}", userId, objectKey, stored.getSize());
 
+        // 返回文件信息
         return saveRecord(userId, originalName, stored.getObjectKey(), stored.getBucketName(),
                 stored.getStorageType(), file.getContentType(), stored.getSize(), hash);
     }

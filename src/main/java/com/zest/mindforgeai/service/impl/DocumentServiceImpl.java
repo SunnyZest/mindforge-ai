@@ -72,6 +72,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     @Transactional(rollbackFor = Exception.class)
     public DocumentVO upload(Long knowledgeBaseId, MultipartFile file, String description) {
         // ① 校验知识库归属 —— 不校验的话，任何人都能往别人的知识库里塞文档
+        // 会检验是否与当前登录用户userId一致
         KnowledgeBase kb = knowledgeBaseService.getOwned(knowledgeBaseId);
 
         // ② 校验文件名与类型
@@ -79,8 +80,10 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         if (!StringUtils.hasText(originalName)) {
             throw new BizException(ErrorCode.PARAM_INVALID, "文件名不能为空");
         }
+        // 拿到后缀名，文件类型
         String ext = extractExtension(originalName);
         if (!ALLOWED_EXT.contains(ext)) {
+            // 文件类型错误
             throw new BizException(ErrorCode.FILE_TYPE_UNSUPPORTED,
                     "只支持 PDF / DOCX / TXT / Markdown / HTML");
         }
@@ -108,6 +111,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         log.info("文档上传成功 documentId={} kbId={} fileName={} size={}",
                 doc.getId(), knowledgeBaseId, originalName, sysFile.getFileSize());
 
+        // 记录审计日志
         auditService.recordSuccess(AuditConstants.ACTION_DOCUMENT_UPLOAD,
                 AuditConstants.RESOURCE_DOCUMENT, String.valueOf(doc.getId()),
                 Map.of("knowledgeBaseId", knowledgeBaseId,
@@ -115,6 +119,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
                        "fileSize", sysFile.getFileSize(),
                        "description", description == null ? "" : description));
 
+        // 转为DocumentVO返回
         return toVO(doc);
     }
 
@@ -247,11 +252,15 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         if (sysFile == null) {
             throw new BizException(ErrorCode.RESOURCE_NOT_FOUND, "文件记录不存在");
         }
+        // 返回ossclient生成的PresignedUrl
         return fileService.downloadUrl(sysFile);
     }
 
     /* ---------- 内部工具 ---------- */
 
+    /**
+     * 拿到后缀名
+     */
     private String extractExtension(String fileName) {
         int dot = fileName.lastIndexOf('.');
         return dot > 0 && dot < fileName.length() - 1
@@ -259,6 +268,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
                 : "";
     }
 
+    // 将Document对象转为DocumentVO对象
     private DocumentVO toVO(Document d) {
         DocumentVO vo = new DocumentVO();
         vo.setDocumentId(d.getId() == null ? null : String.valueOf(d.getId()));
@@ -278,7 +288,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     }
 
     /**
-     * 把库里三个独立状态字段聚合成一个对外状态，对齐文档 §十六 的状态序列。
+     * 把库里三个独立状态字段聚合成一个对外状态
      * <p>
      * 注意：目前只到 UPLOADED 就停了（PENDING），后面的 PARSING / CHUNKING / EMBEDDING
      * 要等 Python AI 服务接上才会出现。
