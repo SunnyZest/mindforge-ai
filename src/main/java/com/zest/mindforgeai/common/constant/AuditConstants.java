@@ -66,6 +66,9 @@ public final class AuditConstants {
     /** 删除文档 */
     public static final String ACTION_DOCUMENT_DELETE = "DOCUMENT_DELETE";
 
+    /** 重试文档处理 */
+    public static final String ACTION_DOCUMENT_RETRY = "DOCUMENT_RETRY";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";

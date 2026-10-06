@@ -2,7 +2,9 @@ package com.zest.mindforgeai.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.zest.mindforgeai.pojo.entity.Document;
+import com.zest.mindforgeai.pojo.vo.DocumentStatusVO;
 import com.zest.mindforgeai.pojo.vo.DocumentVO;
+import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -24,6 +26,27 @@ public interface DocumentService extends IService<Document> {
      * @param description 文档描述，当前未持久化（document 表无对应字段），仅作审计明细
      */
     DocumentVO upload(Long knowledgeBaseId, MultipartFile file, String description);
+
+    /** 某个知识库下的文档分页列表（校验知识库归属） */
+    PageResultVO<DocumentVO> pageDocuments(Long knowledgeBaseId, long page, long pageSize, String keyword);
+
+    /** 文档详情（校验归属） */
+    DocumentVO getDetail(Long documentId);
+
+    /** 文档处理状态（校验归属），供前端轮询 */
+    DocumentStatusVO getStatus(Long documentId);
+
+    /**
+     * 重试处理失败的文档。
+     * <p>
+     * 把三个状态重置为 PENDING 并清空错误信息。
+     * <p>
+     * ⚠️ 真正的「通知 AI 服务重新解析」这一步<b>还没实现</b> ——
+     * 按文档 §十七，Java 需要在权限校验后调用 Python 的
+     * {@code POST /internal/ai/v1/documents/parse}，但 Python 服务尚未搭建。
+     * 目前只重置状态，等 AI 服务接上后在这里补一次调用即可。
+     */
+    void retry(Long documentId);
 
     /** 按 id 取文档并校验归属 */
     Document getOwned(Long documentId);

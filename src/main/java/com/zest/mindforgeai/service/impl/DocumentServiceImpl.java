@@ -1,5 +1,8 @@
 package com.zest.mindforgeai.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
@@ -9,7 +12,9 @@ import com.zest.mindforgeai.mapper.DocumentMapper;
 import com.zest.mindforgeai.pojo.entity.Document;
 import com.zest.mindforgeai.pojo.entity.KnowledgeBase;
 import com.zest.mindforgeai.pojo.entity.SysFile;
+import com.zest.mindforgeai.pojo.vo.DocumentStatusVO;
 import com.zest.mindforgeai.pojo.vo.DocumentVO;
+import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.DocumentService;
 import com.zest.mindforgeai.service.FileService;
@@ -21,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Set;
 
@@ -37,6 +43,9 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     /** 允许上传的扩展名，对齐文档 §十六：PDF / DOCX / TXT / Markdown / HTML */
     private static final Set<String> ALLOWED_EXT =
             Set.of("pdf", "docx", "txt", "md", "markdown", "html", "htm");
+
+    /** 单页上限，防止前端传个超大 pageSize 拖垮数据库 */
+    private static final long MAX_PAGE_SIZE = 100;
 
     /* 三个处理阶段的状态取值 */
     private static final String PENDING = "PENDING";
@@ -107,6 +116,85 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
                        "description", description == null ? "" : description));
 
         return toVO(doc);
+    }
+
+    @Override
+    public PageResultVO<DocumentVO> pageDocuments(Long knowledgeBaseId, long page, long pageSize,
+                                                  String keyword) {
+        // 先校验知识库归属 —— 不是你的库，就看不到里面的文档
+        knowledgeBaseService.getOwned(knowledgeBaseId);
+
+        long safePage = Math.max(1, page);
+        long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
+
+        LambdaQueryWrapper<Document> wrapper = new LambdaQueryWrapper<Document>()
+                .eq(Document::getKnowledgeBaseId, knowledgeBaseId)
+                .like(StringUtils.hasText(keyword), Document::getFileName, keyword)
+                .orderByDesc(Document::getId);
+
+        Page<Document> result = page(new Page<>(safePage, safeSize), wrapper);
+
+        return PageResultVO.of(result,
+                result.getRecords().stream().map(this::toVO).toList());
+    }
+
+    @Override
+    public DocumentVO getDetail(Long documentId) {
+        return toVO(getOwned(documentId));
+    }
+
+    @Override
+    public DocumentStatusVO getStatus(Long documentId) {
+        Document d = getOwned(documentId);
+
+        DocumentStatusVO vo = new DocumentStatusVO();
+        vo.setDocumentId(String.valueOf(d.getId()));
+        vo.setStatus(aggregateStatus(d));
+        vo.setParseStatus(d.getParseStatus());
+        vo.setChunkStatus(d.getChunkStatus());
+        vo.setVectorStatus(d.getVectorStatus());
+        vo.setErrorMessage(d.getErrorMessage());
+        vo.setUpdatedAt(d.getUpdatedAt());
+        return vo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void retry(Long documentId) {
+        Document doc = getOwned(documentId);
+
+        // 只有处理失败的才能重试。
+        // 允许重试「处理中」的文档会让 AI 服务对同一份文档跑两遍，状态互相覆盖。
+        if (!FAILED.equals(doc.getParseStatus())
+                && !FAILED.equals(doc.getChunkStatus())
+                && !FAILED.equals(doc.getVectorStatus())) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT,
+                    "只有处理失败的文档可以重试，当前状态：" + aggregateStatus(doc));
+        }
+
+        String previousStatus = aggregateStatus(doc);
+
+        // 三个状态一起重置，并清掉上次的错误信息。
+        // 用 LambdaUpdateWrapper 而不是 updateById：MP 的 updateById 默认忽略 null 字段，
+        // 传 null 的 errorMessage 根本不会被写进 SQL，旧错误信息会残留。
+        update(new LambdaUpdateWrapper<Document>()
+                .eq(Document::getId, documentId)
+                .set(Document::getParseStatus, PENDING)
+                .set(Document::getChunkStatus, PENDING)
+                .set(Document::getVectorStatus, PENDING)
+                .set(Document::getErrorMessage, null)
+                .set(Document::getUpdatedAt, LocalDateTime.now()));
+
+        // ⚠️ 待补：这里应该调用 Python 的 POST /internal/ai/v1/documents/parse
+        //    （文档 §十七）。AI 服务尚未搭建，所以目前只是把状态重置为 PENDING，
+        //    等 Python 接上后在这个位置补一次调用即可。
+        log.info("重试文档 documentId={} fileName={}，状态已重置为 PENDING（等待 AI 服务处理）",
+                documentId, doc.getFileName());
+
+        auditService.recordSuccess(AuditConstants.ACTION_DOCUMENT_RETRY,
+                AuditConstants.RESOURCE_DOCUMENT, String.valueOf(documentId),
+                Map.of("fileName", doc.getFileName(),
+                       "previousStatus", previousStatus));
     }
 
     @Override
