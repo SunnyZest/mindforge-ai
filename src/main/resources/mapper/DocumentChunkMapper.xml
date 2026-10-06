@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.DocumentChunkMapper">
+
+    <!--
+      物理删除某个文档的全部分块
+
+      document_chunk 没有 deleted 列，只能物理删。
+      注意：向量库里对应的向量要由 Python 那边一起清掉 ——
+      这张表删了不代表向量库删了。
+    -->
+    <delete id="deleteByDocumentId">
+        DELETE FROM document_chunk WHERE document_id = #{documentId}
+    </delete>
+
+    <!--
+      批量插入分块（一条 INSERT 多 VALUES）
+
+      配合 deleteByDocumentId 使用，构成「先删后插」——
+      重复处理同一份文档时不会撞 uk_doc_chunk_index (document_id, chunk_index)。
+    -->
+    <insert id="batchInsert">
+        INSERT INTO document_chunk
+            (user_id, knowledge_base_id, document_id, chunk_index,
+             content, token_count, page_no, vector_id, metadata_json, created_at)
+        VALUES
+        <foreach collection="list" item="it" separator=",">
+            (#{it.userId}, #{it.knowledgeBaseId}, #{it.documentId}, #{it.chunkIndex},
+             #{it.content}, #{it.tokenCount}, #{it.pageNo}, #{it.vectorId}, #{it.metadataJson}, NOW())
+        </foreach>
+    </insert>
+
+</mapper>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.DocumentMapper">
+
+    <!--
+      认领待处理文档（给 Python AI 服务用）
+
+      ⚠️ FOR UPDATE SKIP LOCKED 是这段 SQL 的核心：
+         - FOR UPDATE 给选中的行加排他锁
+         - SKIP LOCKED 让其他事务【跳过】已被锁住的行，而不是阻塞等待
+
+      效果：10 个 Python 实例同时来拿任务，各自拿到不同的 10 条，互不干扰。
+      没有 SKIP LOCKED 的话它们会串行排队，扩容没有意义。
+
+      ⚠️ 自定义 SQL 不过滤 deleted，所以这里手动写了 deleted = 0。
+    -->
+    <select id="selectPendingForClaim" resultType="com.zest.mindforgeai.pojo.entity.Document">
+        SELECT id,
+               user_id,
+               knowledge_base_id,
+               file_id,
+               file_name,
+               file_type,
+               file_url,
+               file_size,
+               content_hash,
+               parse_status,
+               chunk_status,
+               vector_status,
+               page_count,
+               created_at,
+               updated_at
+        FROM document
+        WHERE deleted = 0
+          AND parse_status = 'PENDING'
+        ORDER BY id
+        LIMIT #{limit}
+        FOR UPDATE SKIP LOCKED
+    </select>
+
+    <!--
+      回收超时未回写的认领
+
+      updated_at 由 DDL 的 ON UPDATE CURRENT_TIMESTAMP 自动维护，
+      所以「认领后多久没动静」直接看它就够了，不用额外加 claimed_at 字段。
+    -->
+    <update id="reclaimTimedOut">
+        UPDATE document
+        SET parse_status = 'PENDING',
+            error_message = '处理超时未回写，已自动重新入队',
+            updated_at = NOW()
+        WHERE deleted = 0
+          AND parse_status = 'PARSING'
+          AND updated_at &lt; #{deadline}
+    </update>
+
+</mapper>
