@@ -3,6 +3,7 @@ package com.zest.mindforgeai.config.security;
 import com.zest.mindforgeai.common.constant.RoleConstants;
 import com.zest.mindforgeai.security.JwtAccessDeniedHandler;
 import com.zest.mindforgeai.security.JwtAuthenticationEntryPoint;
+import com.zest.mindforgeai.security.InternalTokenFilter;
 import com.zest.mindforgeai.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -50,13 +51,16 @@ public class SecurityConfig {
     };
 
     private final JwtAuthenticationFilter jwtFilter;
+    private final InternalTokenFilter internalTokenFilter;
     private final JwtAuthenticationEntryPoint entryPoint;
     private final JwtAccessDeniedHandler accessDeniedHandler;
 
     public SecurityConfig(JwtAuthenticationFilter jwtFilter,
+                          InternalTokenFilter internalTokenFilter,
                           JwtAuthenticationEntryPoint entryPoint,
                           JwtAccessDeniedHandler accessDeniedHandler) {
         this.jwtFilter = jwtFilter;
+        this.internalTokenFilter = internalTokenFilter;
         this.entryPoint = entryPoint;
         this.accessDeniedHandler = accessDeniedHandler;
     }
@@ -71,6 +75,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 白名单：相当于 excludePathPatterns
                         .requestMatchers(PUBLIC_URLS).permitAll()
+                        // 内部接口：不走 JWT —— 调用方是 Python AI 服务，它没有用户身份，
+                        // 也不该有（文档 §十七：Python 不参与用户认证）。
+                        // 这里放行后由 InternalTokenFilter 校验 X-Service-Token。
+                        // 生产环境还应叠加网络隔离（Docker 内网 / 只允许内网访问）。
+                        .requestMatchers("/internal/**").permitAll()
                         // 管理端：需要 ADMIN / SUPER_ADMIN（文档 §7.2、§33.4）
                         .requestMatchers("/admin/**")
                         .hasAnyRole(RoleConstants.ADMIN, RoleConstants.SUPER_ADMIN)
@@ -84,8 +93,14 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
-                // 把 JWT 过滤器插在用户名密码过滤器之前
-                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+                  // 把 JWT 过滤器插在用户名密码过滤器之前
+                  .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+                  // 内部接口的令牌校验要跑在 JWT 之前 —— 它的路径本来就不该有 JWT。
+                  // ⚠️ 这一行必须在上面那行【之后】：Spring Security 要求
+                  //    「参照物 filter」已经有注册顺序，而自定义 filter 只有被 addFilterBefore
+                  //    加进链里之后才有顺序。顺序写反会报
+                  //    "The Filter class JwtAuthenticationFilter does not have a registered order"。
+                  .addFilterBefore(internalTokenFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 

@@ -59,6 +59,15 @@ mindforge:
   # 已删除文件的清理（默认：恢复窗口 30 天、每天 03:20 清理）：
   #   storage.retention-days   用户删文件后 OSS 对象保留的天数，到期才物理删
   #   storage.purge-cron       清理任务 cron
+  #
+  # 内部接口（/internal/**，只给 Python AI 服务调）—— 实际值在 application-dev.yml：
+  #   internal.service-token           ⚠️ 必配！留空则所有 /internal 请求被拒绝（fail-safe）
+  #                                    Java 和 Python 两边配成一样，放 X-Service-Token 头
+  #   internal.claim-limit             单次最多认领多少文档（默认 10）
+  #   internal.claim-timeout-minutes   认领后多久没回写就收回重派（默认 30）
+  #   internal.claim-timeout-cron      回收任务 cron（默认每 10 分钟）
+  #
+  # ⚠️ 生产环境必须用 Nginx / Docker 内网把 /internal/** 挡在外面，单靠静态 token 不够。
 
   task:
     # 清理过期 refreshToken 的 cron（默认每天 03:10）
