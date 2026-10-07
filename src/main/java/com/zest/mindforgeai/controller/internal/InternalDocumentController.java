@@ -4,11 +4,13 @@ import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.ChunkBatchDTO;
 import com.zest.mindforgeai.pojo.dto.DocumentStatusUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.DocumentClaimVO;
+import com.zest.mindforgeai.pojo.vo.DocumentVectorPurgeVO;
 import com.zest.mindforgeai.service.InternalDocumentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -87,5 +89,34 @@ public class InternalDocumentController {
     public Result<Integer> saveChunks(@PathVariable Long id,
                                       @Valid @RequestBody ChunkBatchDTO dto) {
         return Result.success(internalDocumentService.saveChunks(id, dto));
+    }
+
+    /**
+     * 查出「已删除但向量未清」的文档。
+     * <p>
+     * <b>为什么需要这个</b>：删除文档只做逻辑删除，向量库里的向量不会自动消失，
+     * 会留下「孤儿向量」—— 检索时可能召回已被删除的文档内容。
+     * AI 服务定期调这个接口拿到列表，去向量库删掉，再回写「已清理」。
+     * <p>
+     * 用「AI 服务来拉」而不是「Java 主动通知 AI 服务」：本服务将来可能跑在
+     * NAT 后的虚拟机里，Java 主动调它需要端口转发，而这个方向天然可达。
+     */
+    @Operation(summary = "查询待清理向量的文档")
+    @GetMapping("/pending-vector-purge")
+    public Result<List<DocumentVectorPurgeVO>> pendingVectorPurge(
+            @RequestParam(defaultValue = "100") int limit) {
+        return Result.success(internalDocumentService.listPendingVectorPurge(limit));
+    }
+
+    /**
+     * 标记某个文档的向量已清除。
+     * <p>
+     * 幂等：重复调用不会出错。
+     */
+    @Operation(summary = "标记向量已清除")
+    @PutMapping("/{id}/vector-purged")
+    public Result<Void> markVectorPurged(@PathVariable Long id) {
+        internalDocumentService.markVectorPurged(id);
+        return Result.success();
     }
 }

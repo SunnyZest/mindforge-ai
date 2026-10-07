@@ -55,4 +55,39 @@
           AND updated_at &lt; #{deadline}
     </update>
 
+    <!--
+      查「已删除但向量未清」的文档，给 AI 服务清向量库用。
+
+      走 idx_doc_vector_purged (deleted, vector_purged) 索引。
+
+      不加 FOR UPDATE SKIP LOCKED：清理幂等，重复删同一文档的向量无害，
+      为去重引入锁不值得。
+    -->
+    <select id="selectPendingVectorPurge" resultType="com.zest.mindforgeai.pojo.entity.Document">
+        SELECT id,
+               user_id,
+               knowledge_base_id,
+               file_name,
+               vector_status
+        FROM document
+        WHERE deleted = 1
+          AND vector_purged = 0
+        ORDER BY id
+        LIMIT #{limit}
+    </select>
+
+    <!--
+      标记向量已清除。
+
+      带 deleted = 1 是防御：只标记确实被删除的文档，
+      否则误标一个在用文档会让它的向量永远清不掉。
+    -->
+    <update id="markVectorPurged">
+        UPDATE document
+        SET vector_purged = 1,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND deleted = 1
+    </update>
+
 </mapper>

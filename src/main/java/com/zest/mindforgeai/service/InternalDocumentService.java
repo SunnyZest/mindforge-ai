@@ -3,6 +3,7 @@ package com.zest.mindforgeai.service;
 import com.zest.mindforgeai.pojo.dto.ChunkBatchDTO;
 import com.zest.mindforgeai.pojo.dto.DocumentStatusUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.DocumentClaimVO;
+import com.zest.mindforgeai.pojo.vo.DocumentVectorPurgeVO;
 
 import java.util.List;
 
@@ -50,4 +51,19 @@ public interface InternalDocumentService {
      * 防的是「Python 认领后崩了」—— 没有这一步，那些文档会永远卡在 PARSING。
      */
     int reclaimTimedOut();
+
+    /**
+     * 查出「已删除但向量未清」的文档，供 AI 服务清理向量库。
+     * <p>
+     * <b>为什么需要</b>：删除文档只做逻辑删除，向量库里的向量不会自动消失，
+     * 会留下「孤儿向量」—— 检索时可能召回已被删除的文档内容。
+     */
+    List<DocumentVectorPurgeVO> listPendingVectorPurge(int limit);
+
+    /**
+     * 标记某个文档的向量已清除。
+     * <p>
+     * 幂等：重复调用不会出错（第二次返回 0 行，按成功处理）。
+     */
+    void markVectorPurged(Long documentId);
 }

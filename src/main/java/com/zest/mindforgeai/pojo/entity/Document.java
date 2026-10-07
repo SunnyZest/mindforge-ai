@@ -60,6 +60,14 @@ public class Document implements Serializable {
 
     private Integer pageCount;
 
+    /**
+     * 向量是否已从向量库清除：0=未清 1=已清。
+     * <p>
+     * 文档删除后，数据库记录是逻辑删除，但向量库里的向量不会自动消失。
+     * AI 服务会定期拉「已删除但未清向量」的文档，清完后把这个字段置 1。
+     */
+    private Integer vectorPurged;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
