@@ -209,7 +209,11 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             throw new BizException(ErrorCode.DOCUMENT_NOT_FOUND);
         }
         if (!doc.getUserId().equals(SecurityUtils.getUserId())) {
-            throw new BizException(ErrorCode.RESOURCE_FORBIDDEN);
+            // ⚠️ 刻意抛「不存在」而不是「无权访问」：
+            // 资源 id 是连续自增的数字，抛 403 等于告诉调用方
+            // 「这个 id 是存在的，只是不归你」——相当于帮他确认了别人的数据范围。
+            // 抛 404 什么都不泄漏。
+            throw new BizException(ErrorCode.DOCUMENT_NOT_FOUND);
         }
         return doc;
     }

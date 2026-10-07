@@ -21,6 +21,16 @@ public enum ErrorCode {
     TOKEN_INVALID(40103, "Token 无效"),
 
     FORBIDDEN(40301, "无权限"),
+
+    /**
+     * 「资源不是你的」这个场景【不用】它 —— 那种情况一律返回「不存在」(404)。
+     * <p>
+     * 因为资源 id 是连续自增的，返回 403 等于告诉调用方
+     * 「这个 id 存在，只是不归你」，相当于帮他确认了别人的数据范围。
+     * <p>
+     * 这个码留给「资源确实是你的，但你没有操作它的权限」这类场景
+     * （比如知识库的只读成员试图删除它）。
+     */
     RESOURCE_FORBIDDEN(40302, "无权访问该资源"),
     ACCOUNT_DISABLED(40303, "账号已被禁用"),
 
@@ -28,6 +38,7 @@ public enum ErrorCode {
     RESOURCE_NOT_FOUND(40402, "资源不存在"),
     KNOWLEDGE_BASE_NOT_FOUND(40403, "知识库不存在"),
     DOCUMENT_NOT_FOUND(40404, "文档不存在"),
+    CHUNK_NOT_FOUND(40405, "文档分块不存在"),
 
     METHOD_NOT_ALLOWED(40501, "请求方法不支持"),
 

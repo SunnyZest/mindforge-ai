@@ -180,7 +180,10 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
             throw new BizException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND);
         }
         if (!kb.getUserId().equals(SecurityUtils.getUserId())) {
-            throw new BizException(ErrorCode.RESOURCE_FORBIDDEN);
+            // ⚠️ 刻意抛「不存在」而不是「无权访问」：
+            // 抛 403 等于告诉调用方「这个 id 存在，只是不归你」，
+            // 相当于帮他确认了别人的数据范围。抛 404 什么都不泄漏。
+            throw new BizException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND);
         }
         return kb;
     }
