@@ -50,6 +50,22 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+        <!--
+            Redis：限流计数、登录失败计数。
+
+            选它而不是进程内缓存（Caffeine）的原因：计数要跨实例共享。
+            用本地缓存的话，部署 N 个实例，限流阈值实际会变成「阈值 × N」，
+            登录失败 5 次锁定也会变成 5×N 次才锁 —— 防护被稀释。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- 连接池，让 Lettuce 复用连接而不是每次新建 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>

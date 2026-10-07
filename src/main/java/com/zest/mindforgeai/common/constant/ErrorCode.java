@@ -3,7 +3,7 @@ package com.zest.mindforgeai.common.constant;
 import lombok.Getter;
 
 /**
- * 统一错误码，对齐《MindForge-AI-API开发文档-双前端单后端-RBAC》§三十四
+ * 统一错误码，对齐 API 文档 §三十四
  *
  * @author crx
  * @since 2026-10-03
@@ -47,7 +47,8 @@ public enum ErrorCode {
 
     FILE_TOO_LARGE(41301, "文件过大"),
     FILE_TYPE_UNSUPPORTED(42201, "文件类型不支持"),
-    TOO_MANY_REQUESTS(42901, "请求过于频繁"),
+    TOO_MANY_REQUESTS(42901, "请求过于频繁，请稍后再试"),
+    LOGIN_TOO_MANY_ATTEMPTS(42902, "登录失败次数过多，账号已临时锁定"),
 
     SYSTEM_ERROR(50001, "系统内部异常"),
     AI_SERVICE_ERROR(50201, "AI 服务异常"),

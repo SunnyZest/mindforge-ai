@@ -12,13 +12,16 @@ import com.zest.mindforgeai.pojo.vo.LoginVO;
 import com.zest.mindforgeai.pojo.vo.TokenVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.LoginAttemptService;
 import com.zest.mindforgeai.service.RefreshTokenService;
 import com.zest.mindforgeai.service.UserService;
+import com.zest.mindforgeai.utils.ClientIpResolver;
 import com.zest.mindforgeai.utils.JwtUtil;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -52,23 +55,34 @@ public class AdminAuthController {
     private final UserService userService;
     private final AuditService auditService;
     private final RefreshTokenService refreshTokenService;
+    private final LoginAttemptService loginAttemptService;
+    private final ClientIpResolver ipResolver;
 
     public AdminAuthController(AuthenticationManager authenticationManager,
                                JwtUtil jwtUtil,
                                UserService userService,
                                AuditService auditService,
-                               RefreshTokenService refreshTokenService) {
+                               RefreshTokenService refreshTokenService,
+                               LoginAttemptService loginAttemptService,
+                               ClientIpResolver ipResolver) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
         this.auditService = auditService;
         this.refreshTokenService = refreshTokenService;
+        this.loginAttemptService = loginAttemptService;
+        this.ipResolver = ipResolver;
     }
 
     @Operation(summary = "管理员登录")
     @SecurityRequirements   // 公开接口：登录无需认证，摘掉文档上的锁标记
     @PostMapping("/login")
-    public Result<LoginVO> login(@Valid @RequestBody LoginDTO dto) {
+    public Result<LoginVO> login(@Valid @RequestBody LoginDTO dto, HttpServletRequest request) {
+        String clientIp = ipResolver.resolve(request);
+
+        // 先看有没有被锁 —— 管理端入口尤其重要，被爆破的后果比用户端严重
+        loginAttemptService.checkNotLocked(dto.getUsername(), clientIp);
+
         /**
          * Authentication auth = authenticationManager.authenticate(...);
          * // ① 能走到下一行，就说明认证已通过（失败已经抛异常了）
@@ -81,14 +95,23 @@ public class AdminAuthController {
             auth = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(dto.getUsername(), dto.getPassword()));
         } catch (AuthenticationException e) {
+            // 记失败次数 —— 连续多次会锁定账号 / IP
+            loginAttemptService.recordFailure(dto.getUsername(), clientIp);
+
             // 登录失败也要留痕：此时尚未认证成功，SecurityContext 为空，userId 记 null，
             // 把「尝试的用户名」放进 detail，便于排查撞库 / 爆破
             auditService.recordFailure(AuditConstants.ACTION_ADMIN_LOGIN,
                     AuditConstants.RESOURCE_USER, null,
                     Map.of("attemptedUsername", dto.getUsername(),
+                           "clientIp", clientIp,
                            "reason", e.getClass().getSimpleName()));
             throw e;    // 继续抛出，交给 GlobalExceptionHandler 转成 40101
         }
+
+        // 密码对了，清掉失败计数。
+        // 注意：这里在「角色校验」之前清 —— 角色不够不算爆破，
+        // 不该让普通用户误登管理端累积成锁定。
+        loginAttemptService.recordSuccess(dto.getUsername(), clientIp);
 
         // ★ 认证成功 → 写入 SecurityContext。
         //   authenticate() 只返回 Authentication，并不会设置 SecurityContext，

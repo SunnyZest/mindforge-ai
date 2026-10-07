@@ -12,13 +12,16 @@ import com.zest.mindforgeai.pojo.vo.LoginVO;
 import com.zest.mindforgeai.pojo.vo.TokenVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.LoginAttemptService;
 import com.zest.mindforgeai.service.RefreshTokenService;
 import com.zest.mindforgeai.service.UserService;
+import com.zest.mindforgeai.utils.ClientIpResolver;
 import com.zest.mindforgeai.utils.JwtUtil;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -54,17 +57,23 @@ public class UserAuthController {
     private final UserService userService;
     private final AuditService auditService;
     private final RefreshTokenService refreshTokenService;
+    private final LoginAttemptService loginAttemptService;
+    private final ClientIpResolver ipResolver;
 
     public UserAuthController(AuthenticationManager authenticationManager,
                               JwtUtil jwtUtil,
                               UserService userService,
                               AuditService auditService,
-                              RefreshTokenService refreshTokenService) {
+                              RefreshTokenService refreshTokenService,
+                              LoginAttemptService loginAttemptService,
+                              ClientIpResolver ipResolver) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
         this.auditService = auditService;
         this.refreshTokenService = refreshTokenService;
+        this.loginAttemptService = loginAttemptService;
+        this.ipResolver = ipResolver;
     }
 
     @Operation(summary = "用户注册")
@@ -84,21 +93,33 @@ public class UserAuthController {
     @Operation(summary = "用户登录")
     @SecurityRequirements   // 公开接口：登录无需认证，摘掉文档上的锁标记
     @PostMapping("/login")
-    public Result<LoginVO> login(@Valid @RequestBody LoginDTO dto) {
+    public Result<LoginVO> login(@Valid @RequestBody LoginDTO dto, HttpServletRequest request) {
+        String clientIp = ipResolver.resolve(request);
+
+        // 先看有没有被锁 —— 锁定期内连密码都不用验，直接拒
+        loginAttemptService.checkNotLocked(dto.getUsername(), clientIp);
+
         Authentication auth;
         try {
             // 查库 + BCrypt 校验，失败抛 BadCredentialsException，由全局异常处理器转 40101
             auth = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(dto.getUsername(), dto.getPassword()));
         } catch (AuthenticationException e) {
+            // 记失败次数 —— 连续多次会锁定账号 / IP
+            loginAttemptService.recordFailure(dto.getUsername(), clientIp);
+
             // 用户端只记「登录失败」：正常登录频率高，全记会让审计表被淹没；
             // 但失败值得留痕，用于发现撞库 / 爆破
             auditService.recordFailure(AuditConstants.ACTION_USER_LOGIN,
                     AuditConstants.RESOURCE_USER, null,
                     Map.of("attemptedUsername", dto.getUsername(),
+                           "clientIp", clientIp,
                            "reason", e.getClass().getSimpleName()));
             throw e;    // 继续抛出，交给 GlobalExceptionHandler 转成 40101
         }
+
+        // 登录成功，清掉该账号的失败计数
+        loginAttemptService.recordSuccess(dto.getUsername(), clientIp);
 
         User user = userService.getByUsername(auth.getName());
         List<String> roles = userService.listRoleCodes(user.getId());

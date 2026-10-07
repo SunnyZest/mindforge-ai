@@ -15,6 +15,21 @@ spring:
       # 文档上传（PDF / DOCX）。Spring Boot 默认只有 1MB，不改会直接 413。
       max-file-size: 50MB
       max-request-size: 50MB
+  # Redis：限流计数、登录失败计数。
+  # 实际连接信息在 application-dev.yml 的 mindforge.redis.* 里。
+  data:
+    redis:
+      host: ${mindforge.redis.host}
+      port: ${mindforge.redis.port}
+      password: ${mindforge.redis.password}
+      database: ${mindforge.redis.database:0}
+      timeout: 3s
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 2s
   datasource:
     druid:
       driver-class-name: ${mindforge.datasource.driver-class-name}
@@ -38,6 +53,27 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 mindforge:
+  # 限流与登录保护
+  security:
+    # 是否信任 X-Forwarded-For 头。
+    # ⚠️ 默认 false —— 这个头客户端可以伪造，后端前面没挂可信代理却读它，
+    #    攻击者每次换个假 IP 就能绕过限流和登录失败计数。
+    #    确实挂了 Nginx / 网关时才改成 true。
+    trust-forwarded-headers: false
+    rate-limit:
+      enabled: true
+      # 普通接口：每分钟每 IP 允许的请求数
+      default-per-minute: 100
+      # 认证接口（登录/注册/刷新）：更严，防爆破
+      auth-per-minute: 10
+    login-attempt:
+      enabled: true
+      # 同一账号连续失败多少次后锁定
+      max-per-username: 5
+      # 同一 IP 连续失败多少次后锁定（放宽些，避免 NAT 下误伤）
+      max-per-ip: 20
+      # 锁定时长（分钟）
+      lock-minutes: 15
   jwt:
     # 由 com.zest.mindforgeai.SecretKeyGenerator 生成（Base64），生产环境用环境变量覆盖,通过环境变量MINDFORGE_JWT_SECRET
     secret: ${mindforge.jwt.secret-prop}
