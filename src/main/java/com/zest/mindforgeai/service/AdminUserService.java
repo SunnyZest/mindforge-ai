@@ -1,5 +1,6 @@
 package com.zest.mindforgeai.service;
 
+import com.zest.mindforgeai.pojo.dto.AdminUserCreateDTO;
 import com.zest.mindforgeai.pojo.dto.UserUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
@@ -41,4 +42,22 @@ public interface AdminUserService {
      * roleIds: 角色对应的id
      */
     void assignRoles(Long userId, List<Long> roleIds);
+
+    /**
+     * 创建用户。
+     * <p>
+     * 用户名 / 邮箱沿用「一经使用即永久占用」的规则（见 {@code UserMapper} 的说明）。
+     * 未指定角色时只绑定默认角色 USER。
+     *
+     * @return 新建用户的信息（含角色与权限）
+     */
+    UserInfoVO createUser(AdminUserCreateDTO dto);
+
+    /**
+     * 删除（逻辑）用户。
+     * <p>
+     * 会一并清理 {@code sys_user_role} 关联、撤销该用户全部 refresh token。
+     * 账号本身是<b>逻辑删除</b> —— 数据留着可追溯，但用户名/邮箱永久占用。
+     */
+    void deleteUser(Long userId);
 }

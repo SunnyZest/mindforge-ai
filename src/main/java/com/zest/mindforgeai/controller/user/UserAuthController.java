@@ -4,6 +4,7 @@ import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.result.Result;
+import com.zest.mindforgeai.pojo.dto.ChangePasswordDTO;
 import com.zest.mindforgeai.pojo.dto.LoginDTO;
 import com.zest.mindforgeai.pojo.dto.RefreshTokenDTO;
 import com.zest.mindforgeai.pojo.dto.RegisterDTO;
@@ -14,6 +15,7 @@ import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.LoginAttemptService;
 import com.zest.mindforgeai.service.RefreshTokenService;
+import com.zest.mindforgeai.service.UserProfileService;
 import com.zest.mindforgeai.service.UserService;
 import com.zest.mindforgeai.utils.ClientIpResolver;
 import com.zest.mindforgeai.utils.JwtUtil;
@@ -59,6 +61,7 @@ public class UserAuthController {
     private final RefreshTokenService refreshTokenService;
     private final LoginAttemptService loginAttemptService;
     private final ClientIpResolver ipResolver;
+    private final UserProfileService userProfileService;
 
     public UserAuthController(AuthenticationManager authenticationManager,
                               JwtUtil jwtUtil,
@@ -66,7 +69,8 @@ public class UserAuthController {
                               AuditService auditService,
                               RefreshTokenService refreshTokenService,
                               LoginAttemptService loginAttemptService,
-                              ClientIpResolver ipResolver) {
+                              ClientIpResolver ipResolver,
+                              UserProfileService userProfileService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
@@ -74,6 +78,7 @@ public class UserAuthController {
         this.refreshTokenService = refreshTokenService;
         this.loginAttemptService = loginAttemptService;
         this.ipResolver = ipResolver;
+        this.userProfileService = userProfileService;
     }
 
     @Operation(summary = "用户注册")
@@ -208,6 +213,21 @@ public class UserAuthController {
     public Result<Void> logout(@Valid @RequestBody RefreshTokenDTO dto) {
         refreshTokenService.revoke(dto.getRefreshToken());
         log.info("用户登出");
+        return Result.success();
+    }
+
+    /**
+     * 修改当前用户密码。
+     * <p>
+     * 放在 /auth 下而不是 /user 下，是因为它属于「认证凭据」的变更，
+     * 文档 §5.4 也把它归在认证一节。
+     * <p>
+     * 需要携带有效 accessToken（本接口不在白名单里），并额外提供原密码。
+     */
+    @Operation(summary = "修改当前用户密码")
+    @PostMapping("/password")
+    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordDTO dto) {
+        userProfileService.changePassword(dto);
         return Result.success();
     }
 }

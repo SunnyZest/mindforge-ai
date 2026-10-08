@@ -9,6 +9,7 @@ import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.RoleMapper;
 import com.zest.mindforgeai.mapper.UserMapper;
 import com.zest.mindforgeai.mapper.UserRoleMapper;
+import com.zest.mindforgeai.pojo.dto.AdminUserCreateDTO;
 import com.zest.mindforgeai.pojo.dto.UserUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.SysRole;
 import com.zest.mindforgeai.pojo.entity.SysUserRole;
@@ -19,6 +20,7 @@ import com.zest.mindforgeai.pojo.vo.UserRoleItemVO;
 import com.zest.mindforgeai.pojo.vo.UserSummaryVO;
 import com.zest.mindforgeai.service.AdminUserService;
 import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.RefreshTokenService;
 import com.zest.mindforgeai.service.RoleHierarchyService;
 import com.zest.mindforgeai.service.UserService;
 import com.zest.mindforgeai.utils.SecurityUtils;
@@ -54,17 +56,20 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
     private final UserService userService;
     private final AuditService auditService;
     private final RoleHierarchyService roleHierarchyService;
+    private final RefreshTokenService refreshTokenService;
 
     public AdminUserServiceImpl(UserRoleMapper userRoleMapper,
                                 RoleMapper roleMapper,
                                 UserService userService,
                                 AuditService auditService,
-                                RoleHierarchyService roleHierarchyService) {
+                                RoleHierarchyService roleHierarchyService,
+                                RefreshTokenService refreshTokenService) {
         this.userRoleMapper = userRoleMapper;
         this.roleMapper = roleMapper;
         this.userService = userService;
         this.auditService = auditService;
         this.roleHierarchyService = roleHierarchyService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     @Override
@@ -235,6 +240,104 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
         auditService.recordSuccess(AuditConstants.ACTION_USER_ASSIGN_ROLE,
                 AuditConstants.RESOURCE_USER, String.valueOf(userId),
                 Map.of("username", user.getUsername(), "before", before, "after", after));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public UserInfoVO createUser(AdminUserCreateDTO dto) {
+        List<Long> targetRoleIds = dto.getRoleIds() == null ? List.of()
+                : dto.getRoleIds().stream().filter(Objects::nonNull).distinct().toList();
+
+        // ① 角色校验放在建账号【之前】。
+        //    放在后面的话，角色非法时会先插一个用户再抛异常 ——
+        //    事务虽然会回滚，但日志和报错会指向「用户已存在」之类的误导方向。
+        if (!targetRoleIds.isEmpty()) {
+            long found = roleMapper.selectCount(new LambdaQueryWrapper<SysRole>()
+                    .in(SysRole::getId, targetRoleIds));
+            if (found != targetRoleIds.size()) {
+                throw new BizException(ErrorCode.RESOURCE_NOT_FOUND, "存在无效的角色 id");
+            }
+
+            // ★ 垂直越权防护：不能建出层级 ≥ 自己的角色。
+            //   没有这一条，ADMIN 只要拿到 admin:user:create，
+            //   就能直接建一个 SUPER_ADMIN 账号登录上去 —— 比改自己的角色还直接。
+            for (Long roleId : targetRoleIds) {
+                roleHierarchyService.requireRoleOperable(roleId);
+            }
+        }
+
+        // ② 账号本身复用 register()：唯一性检查（含已逻辑删除的）、BCrypt 加密、
+        //    默认角色绑定都在那里。用户名 / 邮箱「一经使用即永久占用」的规则
+        //    只该有一处实现，在这里重写一遍迟早会和那边走样。
+        User user = userService.register(dto.getUsername(), dto.getEmail(), dto.getPassword());
+
+        // ③ 昵称：管理员指定时覆盖 register 的默认值（默认与用户名相同）
+        if (StringUtils.hasText(dto.getNickname())) {
+            updateById(new User()
+                    .setId(user.getId())
+                    .setNickname(dto.getNickname())
+                    .setUpdatedAt(LocalDateTime.now()));
+            user.setNickname(dto.getNickname());
+        }
+
+        // ④ 角色：管理员显式指定时覆盖默认的 USER
+        if (!targetRoleIds.isEmpty()) {
+            userRoleMapper.delete(new LambdaQueryWrapper<SysUserRole>()
+                    .eq(SysUserRole::getUserId, user.getId()));
+            for (Long roleId : targetRoleIds) {
+                userRoleMapper.insert(new SysUserRole()
+                        .setUserId(user.getId())
+                        .setRoleId(roleId));
+            }
+        }
+
+        List<String> roles = userService.listRoleCodes(user.getId());
+        log.info("管理员创建用户 userId={} username={} roles={}",
+                user.getId(), user.getUsername(), roles);
+
+        auditService.recordSuccess(AuditConstants.ACTION_USER_CREATE,
+                AuditConstants.RESOURCE_USER, String.valueOf(user.getId()),
+                Map.of("username", user.getUsername(), "roles", roles));
+
+        return UserInfoVO.of(user, roles, userService.listPermissionCodes(user.getId()));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteUser(Long userId) {
+        User user = getById(userId);
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        // 不能删自己：删完 token 里那个 userId 就查不到人了，等于把自己锁在外面
+        if (userId.equals(SecurityUtils.getUserId())) {
+            throw new BizException(ErrorCode.FORBIDDEN, "不能删除当前登录的账号");
+        }
+
+        // ★ 垂直越权防护：不能删层级 ≥ 自己的用户
+        roleHierarchyService.requireUserOperable(userId);
+
+        // ① 先清角色关联 —— 表之间没有外键，主记录删了就再也找不回这些绑定，
+        //    留着就是孤儿数据。与下面两步同在一个事务里。
+        userRoleMapper.delete(new LambdaQueryWrapper<SysUserRole>()
+                .eq(SysUserRole::getUserId, userId));
+
+        // ② 逻辑删除账号：数据留着可追溯（审计里还引用着这个 userId），
+        //    用户名 / 邮箱按唯一索引继续「永久占用」，防冒名。
+        removeById(userId);
+
+        // ③ 撤销全部 refresh token。
+        //    不撤销的话，被删账号手里的 refreshToken 还能一直换新 accessToken。
+        //    accessToken 那一侧靠 JwtAuthenticationFilter 拦 ——
+        //    用户已经查不到了，就当无效 token 处理。
+        refreshTokenService.revokeAll(userId);
+
+        log.info("管理员删除用户 userId={} username={}", userId, user.getUsername());
+
+        auditService.recordSuccess(AuditConstants.ACTION_USER_DELETE,
+                AuditConstants.RESOURCE_USER, String.valueOf(userId),
+                Map.of("username", user.getUsername()));
     }
 
     /* ---------- 内部工具 ---------- */

@@ -33,6 +33,18 @@ public final class AuditConstants {
     /** 给用户分配角色 */
     public static final String ACTION_USER_ASSIGN_ROLE = "USER_ASSIGN_ROLE";
 
+    /** 管理员创建用户 */
+    public static final String ACTION_USER_CREATE = "USER_CREATE";
+
+    /** 管理员删除（逻辑）用户 */
+    public static final String ACTION_USER_DELETE = "USER_DELETE";
+
+    /** 用户修改自己的资料 */
+    public static final String ACTION_USER_UPDATE_PROFILE = "USER_UPDATE_PROFILE";
+
+    /** 用户修改密码（成功和失败都记 —— 拿着有效 token 却不知道原密码，是可疑信号） */
+    public static final String ACTION_USER_CHANGE_PASSWORD = "USER_CHANGE_PASSWORD";
+
     /** 创建角色 */
     public static final String ACTION_ROLE_CREATE = "ROLE_CREATE";
 

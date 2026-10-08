@@ -1,6 +1,7 @@
 package com.zest.mindforgeai.controller.admin;
 
 import com.zest.mindforgeai.common.result.Result;
+import com.zest.mindforgeai.pojo.dto.AdminUserCreateDTO;
 import com.zest.mindforgeai.pojo.dto.AssignRolesDTO;
 import com.zest.mindforgeai.pojo.dto.UserStatusDTO;
 import com.zest.mindforgeai.pojo.dto.UserUpdateDTO;
@@ -13,8 +14,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -57,6 +60,21 @@ public class AdminUserController {
             @RequestParam(required = false) String role) {
 
         return Result.success(adminUserService.pageUsers(page, pageSize, keyword, status, role));
+    }
+
+    @Operation(summary = "创建用户")
+    @PostMapping
+    @PreAuthorize("hasAuthority('admin:user:create')")
+    public Result<UserInfoVO> create(@Valid @RequestBody AdminUserCreateDTO dto) {
+        return Result.success(adminUserService.createUser(dto));
+    }
+
+    @Operation(summary = "删除用户")
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('admin:user:delete')")
+    public Result<Void> delete(@PathVariable Long id) {
+        adminUserService.deleteUser(id);
+        return Result.success();
     }
 
     @Operation(summary = "用户详情")
