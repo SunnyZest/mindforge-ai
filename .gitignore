@@ -49,3 +49,11 @@ application-local.yml
 application-local.yaml
 application-local.properties
 application.properties
+# 本地文档与 schema —— 只在本地维护，不进版本库
+# （用户约定：API 文档、建表 sql、说明.txt 留本地）
+# 用 **/ 前缀匹配任意层级 —— 这些文件散落在项目根目录和 worktree 里
+**/MindForge-AI-API开发文档-*.md
+**/AI-SaaS平台-API开发文档-*.md
+**/认证模块修复方案*.md
+**/mindforge-*.sql
+**/说明.txt

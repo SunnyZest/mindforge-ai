@@ -39,6 +39,8 @@ public enum ErrorCode {
     KNOWLEDGE_BASE_NOT_FOUND(40403, "知识库不存在"),
     DOCUMENT_NOT_FOUND(40404, "文档不存在"),
     CHUNK_NOT_FOUND(40405, "文档分块不存在"),
+    CONVERSATION_NOT_FOUND(40406, "会话不存在"),
+    MESSAGE_NOT_FOUND(40407, "消息不存在"),
 
     METHOD_NOT_ALLOWED(40501, "请求方法不支持"),
 

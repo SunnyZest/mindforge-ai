@@ -69,6 +69,13 @@ public final class AuditConstants {
     /** 重试文档处理 */
     public static final String ACTION_DOCUMENT_RETRY = "DOCUMENT_RETRY";
 
+    /** 新建对话会话 */
+    public static final String ACTION_CONVERSATION_CREATE = "CONVERSATION_CREATE";
+    /** 删除对话会话（会级联清掉消息和引用） */
+    public static final String ACTION_CONVERSATION_DELETE = "CONVERSATION_DELETE";
+    /** 给回答打分 */
+    public static final String ACTION_RAG_FEEDBACK = "RAG_FEEDBACK";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
@@ -81,4 +88,5 @@ public final class AuditConstants {
 
     public static final String RESOURCE_KNOWLEDGE_BASE = "KNOWLEDGE_BASE";
     public static final String RESOURCE_DOCUMENT = "DOCUMENT";
+    public static final String RESOURCE_CONVERSATION = "CONVERSATION";
 }

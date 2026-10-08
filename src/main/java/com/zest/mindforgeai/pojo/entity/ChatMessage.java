@@ -53,5 +53,17 @@ public class ChatMessage implements Serializable {
 
     private LocalDateTime createdAt;
 
+    /**
+     * 用户反馈：UP 有帮助 / DOWN 没帮助。
+     * <p>
+     * 只对助手消息有意义 —— 用户给自己的提问打分没意义。
+     * 一条消息只有一个反馈，重复提交覆盖。
+     */
+    private String rating;
 
+    /** 反馈的补充说明 */
+    private String feedbackReason;
+
+    /** 反馈时间 */
+    private LocalDateTime feedbackAt;
 }

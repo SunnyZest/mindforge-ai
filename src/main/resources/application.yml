@@ -109,6 +109,15 @@ mindforge:
     # 清理过期 refreshToken 的 cron（默认每天 03:10）
     refresh-token-cleanup-cron: 0 10 3 * * ?
 
+  # 调 Python AI 服务（Java → Python 方向）。
+  # service-token 在 application-dev.yml 里配，和 Python 的 JAVA_SERVICE_TOKEN 一致。
+  ai-service:
+    base-url: http://127.0.0.1:8000
+    connect-timeout: 3s
+    # ⚠️ 读超时要按最慢的接口定 —— 对话要等大模型逐 token 生成，
+    # 几十秒是正常的。配短了会大面积超时，且错误看起来像「AI 服务挂了」，容易误判。
+    read-timeout: 120s
+
 springdoc:
   api-docs:
     path: /v3/api-docs
