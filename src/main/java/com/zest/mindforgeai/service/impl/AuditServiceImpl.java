@@ -97,14 +97,25 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
         }
     }
 
+    /**
+     * ⚠️ 这里必须自己标 {@code REQUIRES_NEW}，不能靠内部调 {@code record()} 继承 ——
+     * <b>同类内部调用不走 Spring 代理</b>，方法上的事务注解不会生效。
+     * <p>
+     * 不加会怎样：调用方是 {@code @Transactional} 方法时（比如 assignRoles），
+     * 抛异常回滚会把这条审计一起回滚掉 —— 结果就是
+     * <b>「失败的操作」永远审计不到</b>，而失败恰恰是最该留痕的。
+     * 实测踩到过：垂直越权被拦截，审计表里一条记录都没有。
+     */
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public void recordSuccess(String action, String resourceType, String resourceId, Object detail) {
-        record(action, resourceType, resourceId, true, detail);
+        doRecord(currentUserId(), action, resourceType, resourceId, true, detail);
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public void recordFailure(String action, String resourceType, String resourceId, Object detail) {
-        record(action, resourceType, resourceId, false, detail);
+        doRecord(currentUserId(), action, resourceType, resourceId, false, detail);
     }
 
     @Override
