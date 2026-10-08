@@ -12,6 +12,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -68,7 +69,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (userId != null
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
-            LoginUser loginUser = customUserDetailsService.loadUserById(userId);
+            LoginUser loginUser;
+            try {
+                loginUser = customUserDetailsService.loadUserById(userId);
+            } catch (UsernameNotFoundException e) {
+                // ★ 用户已经不存在（账号被删）。token 本身还没过期，但它指向的人没了。
+                //
+                //   按「无效 token」处理：不写 SecurityContext，直接放行，
+                //   由后面的授权层返回 401 —— 和上面 token 无效的分支走同一条路。
+                //
+                //   ⚠️ 必须在这里接住异常：JwtAuthenticationFilter 排在
+                //   ExceptionTranslationFilter【之前】，从它里面抛出去的异常没人接，
+                //   会一路冒到容器变成 500「系统内部异常」——
+                //   用户看到的是「服务器挂了」，而真实原因是「账号已删除」。
+                log.warn("token 指向的用户已不存在，按无效 token 处理：userId={} uri={}",
+                        userId, request.getRequestURI());
+                chain.doFilter(request, response);
+                return;
+            }
 
             // ★ 账号已被禁用 → 直接拒绝，不写入 SecurityContext。
             //
