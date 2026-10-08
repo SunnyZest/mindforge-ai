@@ -91,6 +91,15 @@ public final class AuditConstants {
     /** 给回答打分 */
     public static final String ACTION_RAG_FEEDBACK = "RAG_FEEDBACK";
 
+    /** 简历：上传（创建）与删除。解析/优化不记 —— 那两步是只读或只产生建议，不改数据 */
+    public static final String ACTION_RESUME_CREATE = "RESUME_CREATE";
+    public static final String ACTION_RESUME_DELETE = "RESUME_DELETE";
+
+    /** 职位 JD 的增删改 */
+    public static final String ACTION_JOB_CREATE = "JOB_CREATE";
+    public static final String ACTION_JOB_UPDATE = "JOB_UPDATE";
+    public static final String ACTION_JOB_DELETE = "JOB_DELETE";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
@@ -104,4 +113,6 @@ public final class AuditConstants {
     public static final String RESOURCE_KNOWLEDGE_BASE = "KNOWLEDGE_BASE";
     public static final String RESOURCE_DOCUMENT = "DOCUMENT";
     public static final String RESOURCE_CONVERSATION = "CONVERSATION";
+    public static final String RESOURCE_RESUME = "RESUME";
+    public static final String RESOURCE_JOB = "JOB";
 }

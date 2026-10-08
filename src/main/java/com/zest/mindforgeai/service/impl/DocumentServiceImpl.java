@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.StorageProperties;
 import com.zest.mindforgeai.mapper.DocumentMapper;
@@ -41,10 +42,6 @@ import java.util.Set;
 @Service
 public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> implements DocumentService {
 
-    /** 允许上传的扩展名，对齐文档 §十六：PDF / DOCX / TXT / Markdown / HTML */
-    private static final Set<String> ALLOWED_EXT =
-            Set.of("pdf", "docx", "txt", "md", "markdown", "html", "htm");
-
     /** 单页上限，防止前端传个超大 pageSize 拖垮数据库 */
     private static final long MAX_PAGE_SIZE = 100;
 
@@ -76,8 +73,8 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
             throw new BizException(ErrorCode.PARAM_INVALID, "文件名不能为空");
         }
         // 拿到后缀名，文件类型
-        String ext = extractExtension(originalName);
-        if (!ALLOWED_EXT.contains(ext)) {
+        String ext = UploadConstants.extensionOf(originalName);
+        if (!UploadConstants.isAllowed(originalName, UploadConstants.DOCUMENT_EXT)) {
             // 文件类型错误
             throw new BizException(ErrorCode.FILE_TYPE_UNSUPPORTED,
                     "只支持 PDF / DOCX / TXT / Markdown / HTML");
@@ -256,16 +253,6 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     }
 
     /* ---------- 内部工具 ---------- */
-
-    /**
-     * 拿到后缀名
-     */
-    private String extractExtension(String fileName) {
-        int dot = fileName.lastIndexOf('.');
-        return dot > 0 && dot < fileName.length() - 1
-                ? fileName.substring(dot + 1).toLowerCase()
-                : "";
-    }
 
     // 将Document对象转为DocumentVO对象
     private DocumentVO toVO(Document d) {

@@ -41,6 +41,8 @@ public enum ErrorCode {
     CHUNK_NOT_FOUND(40405, "文档分块不存在"),
     CONVERSATION_NOT_FOUND(40406, "会话不存在"),
     MESSAGE_NOT_FOUND(40407, "消息不存在"),
+    JOB_NOT_FOUND(40408, "职位不存在"),
+    RESUME_NOT_FOUND(40409, "简历不存在"),
 
     METHOD_NOT_ALLOWED(40501, "请求方法不支持"),
 
