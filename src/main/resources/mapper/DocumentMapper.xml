@@ -4,6 +4,69 @@
 <mapper namespace="com.zest.mindforgeai.mapper.DocumentMapper">
 
     <!--
+      管理端文档列表 / 详情
+
+      ⚠️ 和用户端不同：这里【不按 d.user_id 过滤】—— 管理员看所有人的文档。
+
+      ⚠️ 没有 select 聚合后的总状态（FAILED / COMPLETED / ...）：
+         那个值由 DocumentStatusUtils.aggregate() 算出来，不是表里的列。
+         要在这里 select 就等于把聚合规则抄第二遍，两处一旦不一致
+         就会出现「用户看到失败、管理员看到成功」这种极难排查的问题。
+         所以 status 字段由 Service 层映射完后统一填。
+
+      ⚠️ status 筛选条件用的是【原始状态匹配任一阶段】而不是聚合值 ——
+         "哪个阶段是这个状态"，语义明确、SQL 简单，也不需要复刻聚合逻辑。
+    -->
+    <sql id="adminDocColumns">
+        d.id                AS documentId,
+        d.knowledge_base_id AS knowledgeBaseId,
+        kb.name             AS knowledgeBaseName,
+        d.user_id           AS userId,
+        u.username          AS username,
+        d.file_name         AS fileName,
+        d.file_type         AS fileType,
+        d.file_size         AS fileSize,
+        d.parse_status      AS parseStatus,
+        d.chunk_status      AS chunkStatus,
+        d.vector_status     AS vectorStatus,
+        d.error_message     AS errorMessage,
+        d.page_count        AS pageCount,
+        d.created_at        AS createdAt
+    </sql>
+
+    <select id="selectAdminPage" resultType="com.zest.mindforgeai.pojo.vo.AdminDocumentVO">
+        SELECT <include refid="adminDocColumns"/>
+        FROM document d
+        LEFT JOIN knowledge_base kb ON kb.id = d.knowledge_base_id
+        LEFT JOIN user u ON u.id = d.user_id
+        WHERE d.deleted = 0
+        <if test="knowledgeBaseId != null">
+          AND d.knowledge_base_id = #{knowledgeBaseId}
+        </if>
+        <if test="userId != null">
+          AND d.user_id = #{userId}
+        </if>
+        <if test="keyword != null and keyword != ''">
+          AND d.file_name LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        <if test="status != null and status != ''">
+          AND (d.parse_status = #{status}
+               OR d.chunk_status = #{status}
+               OR d.vector_status = #{status})
+        </if>
+        ORDER BY d.id DESC
+    </select>
+
+    <select id="selectAdminById" resultType="com.zest.mindforgeai.pojo.vo.AdminDocumentVO">
+        SELECT <include refid="adminDocColumns"/>
+        FROM document d
+        LEFT JOIN knowledge_base kb ON kb.id = d.knowledge_base_id
+        LEFT JOIN user u ON u.id = d.user_id
+        WHERE d.deleted = 0
+          AND d.id = #{id}
+    </select>
+
+    <!--
       认领待处理文档（给 Python AI 服务用）
 
       ⚠️ FOR UPDATE SKIP LOCKED 是这段 SQL 的核心：

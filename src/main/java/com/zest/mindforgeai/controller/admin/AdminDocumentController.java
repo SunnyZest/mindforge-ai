@@ -1,21 +1,31 @@
 package com.zest.mindforgeai.controller.admin;
 
 import com.zest.mindforgeai.common.result.Result;
+import com.zest.mindforgeai.pojo.dto.DocumentStatusUpdateDTO;
+import com.zest.mindforgeai.pojo.vo.AdminDocumentVO;
 import com.zest.mindforgeai.pojo.vo.ChunkVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
+import com.zest.mindforgeai.service.AdminDocumentService;
 import com.zest.mindforgeai.service.ChunkService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 管理端文档。
+ * 管理端文档，路径对齐文档 §二十四。
+ * <p>
+ * 看的是<b>所有用户</b>的文档，和用户端的 {@code /app/documents} 不是一回事。
  *
  * @author crx
  * @since 2026-10-07
@@ -27,9 +37,66 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminDocumentController {
 
     private final ChunkService chunkService;
+    private final AdminDocumentService adminDocumentService;
 
-    public AdminDocumentController(ChunkService chunkService) {
+    public AdminDocumentController(ChunkService chunkService,
+                                   AdminDocumentService adminDocumentService) {
         this.chunkService = chunkService;
+        this.adminDocumentService = adminDocumentService;
+    }
+
+    @Operation(summary = "文档列表（所有用户）")
+    @GetMapping("/documents")
+    @PreAuthorize("hasAuthority('admin:document:list')")
+    public Result<PageResultVO<AdminDocumentVO>> page(
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long pageSize,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long knowledgeBaseId,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String status) {
+
+        return Result.success(adminDocumentService.pageDocuments(
+                page, pageSize, keyword, knowledgeBaseId, userId, status));
+    }
+
+    @Operation(summary = "文档详情")
+    @GetMapping("/documents/{id}")
+    @PreAuthorize("hasAuthority('admin:document:list')")
+    public Result<AdminDocumentVO> detail(@PathVariable Long id) {
+        return Result.success(adminDocumentService.getDetail(id));
+    }
+
+    /**
+     * 手工修改文档处理状态。
+     * <p>
+     * ⚠️ 权限码 {@code admin:document:update} 只给 SUPER_ADMIN，和下面的「重试」区分开：
+     * 重试只会把状态重置为 PENDING（方向安全），而这个接口能直接把文档标成 SUCCESS ——
+     * 那会让检索拿到不完整的内容，属于能破坏数据的操作。
+     */
+    @Operation(summary = "修改文档处理状态")
+    @PutMapping("/documents/{id}/status")
+    @PreAuthorize("hasAuthority('admin:document:update')")
+    public Result<Void> updateStatus(@PathVariable Long id,
+                                     @Valid @RequestBody DocumentStatusUpdateDTO dto) {
+        adminDocumentService.updateStatus(id, dto);
+        return Result.success();
+    }
+
+    @Operation(summary = "重试文档")
+    @PostMapping("/documents/{id}/retry")
+    @PreAuthorize("hasAuthority('admin:document:retry')")
+    public Result<Void> retry(@PathVariable Long id) {
+        adminDocumentService.retry(id);
+        return Result.success();
+    }
+
+    @Operation(summary = "删除文档")
+    @DeleteMapping("/documents/{id}")
+    @PreAuthorize("hasAuthority('admin:document:delete')")
+    public Result<Void> delete(@PathVariable Long id) {
+        adminDocumentService.delete(id);
+        return Result.success();
     }
 
     /**

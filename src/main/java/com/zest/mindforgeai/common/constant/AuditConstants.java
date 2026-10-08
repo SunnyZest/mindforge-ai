@@ -81,6 +81,9 @@ public final class AuditConstants {
     /** 重试文档处理 */
     public static final String ACTION_DOCUMENT_RETRY = "DOCUMENT_RETRY";
 
+    /** 管理员手工修改文档处理状态（能破坏数据，比重试危险，单独记一个 action） */
+    public static final String ACTION_DOCUMENT_UPDATE = "DOCUMENT_UPDATE";
+
     /** 新建对话会话 */
     public static final String ACTION_CONVERSATION_CREATE = "CONVERSATION_CREATE";
     /** 删除对话会话（会级联清掉消息和引用） */

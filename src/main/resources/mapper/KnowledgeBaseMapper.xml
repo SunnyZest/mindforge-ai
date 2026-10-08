@@ -43,6 +43,57 @@
     </select>
 
     <!--
+      管理端知识库列表 / 详情
+
+      ⚠️ 与上面的 selectPageWithDocumentCount 的唯一区别：【不加 kb.user_id 条件】。
+         管理员本来就要看所有人的知识库。所以这两条 SQL 刻意分开写，
+         而不是给用户端那条加个「可选跳过归属校验」的开关 ——
+         那种开关一旦传错参数，用户端接口就会漏出别人的数据。
+
+      ⚠️ 关联 user 表取用户名时【不过滤 u.deleted】：
+         用户被删了，他留下的知识库仍要能看出「这是谁的」，所以用 LEFT JOIN 且不看 deleted。
+    -->
+    <sql id="adminKbColumns">
+        kb.id,
+        kb.user_id      AS userId,
+        u.username      AS username,
+        kb.name,
+        kb.description,
+        kb.status,
+        (SELECT COUNT(*)
+           FROM document d
+          WHERE d.knowledge_base_id = kb.id
+            AND d.deleted = 0)   AS documentCount,
+        kb.created_at   AS createdAt,
+        kb.updated_at   AS updatedAt
+    </sql>
+
+    <select id="selectAdminPage" resultType="com.zest.mindforgeai.pojo.vo.AdminKnowledgeBaseVO">
+        SELECT <include refid="adminKbColumns"/>
+        FROM knowledge_base kb
+        LEFT JOIN user u ON u.id = kb.user_id
+        WHERE kb.deleted = 0
+        <if test="userId != null">
+          AND kb.user_id = #{userId}
+        </if>
+        <if test="status != null">
+          AND kb.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+          AND kb.name LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        ORDER BY kb.id DESC
+    </select>
+
+    <select id="selectAdminById" resultType="com.zest.mindforgeai.pojo.vo.AdminKnowledgeBaseVO">
+        SELECT <include refid="adminKbColumns"/>
+        FROM knowledge_base kb
+        LEFT JOIN user u ON u.id = kb.user_id
+        WHERE kb.deleted = 0
+          AND kb.id = #{id}
+    </select>
+
+    <!--
       知识库统计：文档数 / 分块数 / 完成数 / 失败数
 
       注意：

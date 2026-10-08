@@ -1,7 +1,9 @@
 package com.zest.mindforgeai.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.zest.mindforgeai.pojo.entity.Document;
+import com.zest.mindforgeai.pojo.vo.AdminDocumentVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -59,4 +61,25 @@ public interface DocumentMapper extends BaseMapper<Document> {
      * 避免误标一个还在用的文档（那样它的向量就永远不会被清了）。
      */
     int markVectorPurged(@Param("id") Long id);
+
+    /**
+     * 管理端文档分页列表，<b>不按 user_id 过滤</b>（管理员看所有人的）。
+     * <p>
+     * ⚠️ 返回的 {@code status}（聚合总状态）是 <b>null</b> ——
+     * 它由 {@code DocumentStatusUtils.aggregate()} 算出来，不是表里的列，
+     * 在 SQL 里重算等于把规则抄第二遍。调用方拿到结果后要自己填。
+     *
+     * @param knowledgeBaseId 按知识库筛选，可空
+     * @param userId          按上传者筛选，可空
+     * @param keyword         文件名模糊匹配，可空
+     * @param status          原始状态，匹配任一阶段（parse/chunk/vector），可空
+     */
+    IPage<AdminDocumentVO> selectAdminPage(IPage<AdminDocumentVO> page,
+                                           @Param("knowledgeBaseId") Long knowledgeBaseId,
+                                           @Param("userId") Long userId,
+                                           @Param("keyword") String keyword,
+                                           @Param("status") String status);
+
+    /** 管理端文档详情，同上但不分页。status 同样为 null，需要调用方填 */
+    AdminDocumentVO selectAdminById(@Param("id") Long id);
 }

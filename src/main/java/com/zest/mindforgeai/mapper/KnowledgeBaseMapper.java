@@ -3,6 +3,7 @@ package com.zest.mindforgeai.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.zest.mindforgeai.pojo.entity.KnowledgeBase;
+import com.zest.mindforgeai.pojo.vo.AdminKnowledgeBaseVO;
 import com.zest.mindforgeai.pojo.vo.KnowledgeBaseStatsVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -42,4 +43,25 @@ public interface KnowledgeBaseMapper extends BaseMapper<KnowledgeBase> {
      * SQL 见 {@code resources/mapper/KnowledgeBaseMapper.xml}。
      */
     KnowledgeBaseStatsVO selectStats(@Param("knowledgeBaseId") Long knowledgeBaseId);
+
+    /**
+     * 管理端知识库分页列表，<b>不按 user_id 过滤</b>（管理员看所有用户的）。
+     * <p>
+     * 与 {@link #selectPageWithDocumentCount} 分开写，而不是给它加一个
+     * 「可选跳过归属校验」的开关 —— 那种开关一旦传错参数，用户端接口就会漏数据。
+     * <p>
+     * 多返回归属用户 id 和用户名（关联 user 表，不过滤 deleted：
+     * 用户被删了，他的知识库仍要能看出是谁的）。
+     *
+     * @param userId  按归属用户筛选，可空
+     * @param keyword 名称模糊匹配，可空
+     * @param status  状态筛选，可空
+     */
+    IPage<AdminKnowledgeBaseVO> selectAdminPage(IPage<AdminKnowledgeBaseVO> page,
+                                                @Param("userId") Long userId,
+                                                @Param("keyword") String keyword,
+                                                @Param("status") Integer status);
+
+    /** 管理端知识库详情，同上但不分页。查不到（或已逻辑删除）返回 null */
+    AdminKnowledgeBaseVO selectAdminById(@Param("id") Long id);
 }
