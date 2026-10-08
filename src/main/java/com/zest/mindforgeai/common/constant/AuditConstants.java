@@ -60,6 +60,10 @@ public final class AuditConstants {
     /** 修改 AI 配置 */
     public static final String ACTION_AI_CONFIG_UPDATE = "AI_CONFIG_UPDATE";
 
+    /** 新增 / 删除 AI 模型配置。⚠️ 审计明细里绝不能带 API Key */
+    public static final String ACTION_AI_CONFIG_CREATE = "AI_CONFIG_CREATE";
+    public static final String ACTION_AI_CONFIG_DELETE = "AI_CONFIG_DELETE";
+
     /** 越权访问被拒绝（403） */
     public static final String ACTION_ACCESS_DENIED = "ACCESS_DENIED";
 
