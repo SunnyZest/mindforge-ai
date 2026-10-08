@@ -20,6 +20,7 @@ import com.zest.mindforgeai.pojo.vo.PermissionVO;
 import com.zest.mindforgeai.pojo.vo.RolePermissionCountVO;
 import com.zest.mindforgeai.pojo.vo.RoleVO;
 import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.RoleHierarchyService;
 import com.zest.mindforgeai.service.RoleService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,15 +52,18 @@ public class RoleServiceImpl extends ServiceImpl<RoleMapper, SysRole> implements
     private final UserRoleMapper userRoleMapper;
     private final PermissionMapper permissionMapper;
     private final AuditService auditService;
+    private final RoleHierarchyService roleHierarchyService;
 
     public RoleServiceImpl(RolePermissionMapper rolePermissionMapper,
                            UserRoleMapper userRoleMapper,
                            PermissionMapper permissionMapper,
-                           AuditService auditService) {
+                           AuditService auditService,
+                           RoleHierarchyService roleHierarchyService) {
         this.rolePermissionMapper = rolePermissionMapper;
         this.userRoleMapper = userRoleMapper;
         this.permissionMapper = permissionMapper;
         this.auditService = auditService;
+        this.roleHierarchyService = roleHierarchyService;
     }
 
     @Override
@@ -145,6 +149,9 @@ public class RoleServiceImpl extends ServiceImpl<RoleMapper, SysRole> implements
             throw new BizException(ErrorCode.FORBIDDEN, "内置角色不允许删除：" + role.getCode());
         }
 
+        // ★ 垂直越权防护：不能删层级 ≥ 自己的角色
+        roleHierarchyService.requireRoleOperable(roleId);
+
         // ⚠️ 没有外键级联，必须手动清理两张关联表。
         //    而且这两张表【没有 deleted 列】→ 只能物理删除，不能用逻辑删除。
         int permBindings = rolePermissionMapper.delete(new LambdaQueryWrapper<SysRolePermission>()
@@ -189,6 +196,12 @@ public class RoleServiceImpl extends ServiceImpl<RoleMapper, SysRole> implements
         if (role == null) {
             throw new BizException(ErrorCode.RESOURCE_NOT_FOUND, "角色不存在");
         }
+
+        // ★ 垂直越权防护：不能改层级 ≥ 自己的角色的权限。
+        // 现在只有 SUPER_ADMIN 能调这个接口，所以改不了自己（层级相同即拒绝）——
+        // 这正好防止误操作把自己的权限清空、导致系统失去管理员。
+        // 将来若给 ADMIN 开了这个权限，这一行就是防止他改 SUPER_ADMIN 的关键。
+        roleHierarchyService.requireRoleOperable(roleId);
 
         List<Long> targetIds = permissionIds == null ? List.of()
                 : permissionIds.stream().filter(Objects::nonNull).distinct().toList();

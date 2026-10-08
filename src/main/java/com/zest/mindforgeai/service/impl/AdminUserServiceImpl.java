@@ -19,6 +19,7 @@ import com.zest.mindforgeai.pojo.vo.UserRoleItemVO;
 import com.zest.mindforgeai.pojo.vo.UserSummaryVO;
 import com.zest.mindforgeai.service.AdminUserService;
 import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.RoleHierarchyService;
 import com.zest.mindforgeai.service.UserService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -52,15 +53,18 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
     private final RoleMapper roleMapper;
     private final UserService userService;
     private final AuditService auditService;
+    private final RoleHierarchyService roleHierarchyService;
 
     public AdminUserServiceImpl(UserRoleMapper userRoleMapper,
                                 RoleMapper roleMapper,
                                 UserService userService,
-                                AuditService auditService) {
+                                AuditService auditService,
+                                RoleHierarchyService roleHierarchyService) {
         this.userRoleMapper = userRoleMapper;
         this.roleMapper = roleMapper;
         this.userService = userService;
         this.auditService = auditService;
+        this.roleHierarchyService = roleHierarchyService;
     }
 
     @Override
@@ -167,6 +171,11 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             throw new BizException(ErrorCode.FORBIDDEN, "不能禁用当前登录的账号");
         }
 
+        // ★ 垂直越权防护：不能禁用层级 ≥ 自己的用户。
+        // 否则 ADMIN（有 admin:user:disable 权限）就能把 SUPER_ADMIN 的账号禁掉，
+        // 系统会失去唯一能改权限的人 —— 权限码层面他是「有权限」的，但层级上不该动。
+        roleHierarchyService.requireUserOperable(userId);
+
         updateById(new User()
                 .setId(userId)
                 .setStatus(status)
@@ -193,6 +202,16 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             if (found != targetRoleIds.size()) {
                 throw new BizException(ErrorCode.RESOURCE_NOT_FOUND, "存在无效的角色 id");
             }
+        }
+
+        // ★ 垂直越权防护，两个方向都要卡：
+        //   ① 不能改层级 ≥ 自己的用户（否则能去动比自己高的账号）
+        //   ② 不能分配层级 ≥ 自己的角色（否则能给自己或别人提权）
+        //      —— 这一条尤其关键：没有它，ADMIN 只要能调这个接口，
+        //         就能把 SUPER_ADMIN 角色分给自己或同伙，实现提权。
+        roleHierarchyService.requireUserOperable(userId);
+        for (Long roleId : targetRoleIds) {
+            roleHierarchyService.requireRoleOperable(roleId);
         }
 
         // 拿到角色对应的code：“User”、"admin"
