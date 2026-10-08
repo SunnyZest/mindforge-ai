@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.DashboardMapper">
+
+    <!--
+      管理后台首页统计（文档 §二十三）
+
+      注意：
+      1. 用户 / 知识库 / 文档都带 deleted = 0 —— 首页统计的是「在用的数据」，
+         已删除的不该算进去（否则数字只会涨不会跌，看着像故障）。
+      2. ai_usage_record 没有 deleted 列，直接全量统计。
+      3. tokenUsage 用 IFNULL 兜底：表里一条记录都没有时 SUM 返回 NULL，
+         直接映射到 Long 会得到 null，前端拿到 null 显示成空白。
+         返回 0 更符合预期。
+      4. 不做多租户，所以没有 tenantCount（文档里也特意注明了这点）。
+    -->
+    <select id="selectDashboard" resultType="com.zest.mindforgeai.pojo.vo.DashboardVO">
+        SELECT
+            (SELECT COUNT(*) FROM user
+              WHERE deleted = 0)                      AS userCount,
+            (SELECT COUNT(*) FROM knowledge_base
+              WHERE deleted = 0)                      AS knowledgeBaseCount,
+            (SELECT COUNT(*) FROM document
+              WHERE deleted = 0)                      AS documentCount,
+            (SELECT COUNT(*) FROM ai_usage_record)    AS aiRequestCount,
+            (SELECT IFNULL(SUM(total_tokens), 0)
+               FROM ai_usage_record)                  AS tokenUsage
+    </select>
+
+</mapper>
