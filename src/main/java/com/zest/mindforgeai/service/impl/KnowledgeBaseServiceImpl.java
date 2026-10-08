@@ -1,24 +1,20 @@
 package com.zest.mindforgeai.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
-import com.zest.mindforgeai.mapper.ConversationMapper;
-import com.zest.mindforgeai.mapper.DocumentMapper;
 import com.zest.mindforgeai.mapper.KnowledgeBaseMapper;
 import com.zest.mindforgeai.pojo.dto.KnowledgeBaseCreateDTO;
 import com.zest.mindforgeai.pojo.dto.KnowledgeBaseUpdateDTO;
-import com.zest.mindforgeai.pojo.entity.Conversation;
-import com.zest.mindforgeai.pojo.entity.Document;
 import com.zest.mindforgeai.pojo.entity.KnowledgeBase;
 import com.zest.mindforgeai.pojo.vo.KnowledgeBaseStatsVO;
 import com.zest.mindforgeai.pojo.vo.KnowledgeBaseVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.KnowledgeBaseCascadeService;
 import com.zest.mindforgeai.service.KnowledgeBaseService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -44,15 +40,12 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     /** 单页上限，防止前端传个超大 pageSize 拖垮数据库 */
     private static final long MAX_PAGE_SIZE = 100;
 
-    private final DocumentMapper documentMapper;
-    private final ConversationMapper conversationMapper;
+    private final KnowledgeBaseCascadeService cascadeService;
     private final AuditService auditService;
 
-    public KnowledgeBaseServiceImpl(DocumentMapper documentMapper,
-                                    ConversationMapper conversationMapper,
+    public KnowledgeBaseServiceImpl(KnowledgeBaseCascadeService cascadeService,
                                     AuditService auditService) {
-        this.documentMapper = documentMapper;
-        this.conversationMapper = conversationMapper;
+        this.cascadeService = cascadeService;
         this.auditService = auditService;
     }
 
@@ -131,27 +124,17 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     public void delete(Long id) {
         KnowledgeBase kb = requireOwned(id);
 
-        // ⚠️ 没有外键级联，关联数据必须手动清理。
-        //    document / conversation 都有 deleted 列 → MP 的 delete() 会走逻辑删除。
-        //    document_chunk / chat_message / chat_source 没有 deleted 列，
-        //    物理删除代价大（chunk 数据量可能很大），这里不动它们，留待后台清理任务。
-        //    安全性：RAG 检索会 JOIN document 并过滤 deleted = 0，不会召回已删文档的内容。
-        int docs = documentMapper.delete(new LambdaQueryWrapper<Document>()
-                .eq(Document::getKnowledgeBaseId, id));
-        int convs = conversationMapper.delete(new LambdaQueryWrapper<Conversation>()
-                .eq(Conversation::getKnowledgeBaseId, id));
+        // 级联清理交给共享组件 —— 管理端删别人的库走的是同一套规则，
+        // 两边各写一遍的话，将来加关联表时很容易只改一处，留下孤儿数据。
+        KnowledgeBaseCascadeService.CascadeResult result = cascadeService.deleteCascade(id);
 
-        // knowledge_base 有 deleted 列 → 逻辑删除
-        removeById(id);
-
-        log.info("删除知识库 id={} name={}，级联逻辑删除文档 {} 篇、对话 {} 个",
-                id, kb.getName(), docs, convs);
+        log.info("删除知识库 id={} name={}", id, kb.getName());
 
         auditService.recordSuccess(AuditConstants.ACTION_KB_DELETE,
                 AuditConstants.RESOURCE_KNOWLEDGE_BASE, String.valueOf(id),
                 Map.of("name", kb.getName(),
-                       "documentsRemoved", docs,
-                       "conversationsRemoved", convs));
+                       "documentsRemoved", result.documentsRemoved(),
+                       "conversationsRemoved", result.conversationsRemoved()));
     }
 
     @Override

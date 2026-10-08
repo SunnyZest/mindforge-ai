@@ -19,6 +19,7 @@ import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.DocumentService;
 import com.zest.mindforgeai.service.FileService;
 import com.zest.mindforgeai.service.KnowledgeBaseService;
+import com.zest.mindforgeai.utils.DocumentStatusUtils;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -46,12 +47,6 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
     /** 单页上限，防止前端传个超大 pageSize 拖垮数据库 */
     private static final long MAX_PAGE_SIZE = 100;
-
-    /* 三个处理阶段的状态取值 */
-    private static final String PENDING = "PENDING";
-    private static final String SUCCESS = "SUCCESS";
-    private static final String FAILED = "FAILED";
-    private static final String PARSING = "PARSING";
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final FileService fileService;
@@ -103,9 +98,9 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
                 .setFileUrl(sysFile.getObjectKey())
                 .setFileSize(sysFile.getFileSize())
                 .setContentHash(sysFile.getContentHash())
-                .setParseStatus(PENDING)
-                .setChunkStatus(PENDING)
-                .setVectorStatus(PENDING);
+                .setParseStatus(DocumentStatusUtils.PENDING)
+                .setChunkStatus(DocumentStatusUtils.PENDING)
+                .setVectorStatus(DocumentStatusUtils.PENDING);
         save(doc);
 
         log.info("文档上传成功 documentId={} kbId={} fileName={} size={}",
@@ -154,7 +149,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
         DocumentStatusVO vo = new DocumentStatusVO();
         vo.setDocumentId(String.valueOf(d.getId()));
-        vo.setStatus(aggregateStatus(d));
+        vo.setStatus(DocumentStatusUtils.aggregate(d));
         vo.setParseStatus(d.getParseStatus());
         vo.setChunkStatus(d.getChunkStatus());
         vo.setVectorStatus(d.getVectorStatus());
@@ -170,23 +165,23 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
         // 只有处理失败的才能重试。
         // 允许重试「处理中」的文档会让 AI 服务对同一份文档跑两遍，状态互相覆盖。
-        if (!FAILED.equals(doc.getParseStatus())
-                && !FAILED.equals(doc.getChunkStatus())
-                && !FAILED.equals(doc.getVectorStatus())) {
+        if (!DocumentStatusUtils.FAILED.equals(doc.getParseStatus())
+                && !DocumentStatusUtils.FAILED.equals(doc.getChunkStatus())
+                && !DocumentStatusUtils.FAILED.equals(doc.getVectorStatus())) {
             throw new BizException(ErrorCode.STATUS_CONFLICT,
-                    "只有处理失败的文档可以重试，当前状态：" + aggregateStatus(doc));
+                    "只有处理失败的文档可以重试，当前状态：" + DocumentStatusUtils.aggregate(doc));
         }
 
-        String previousStatus = aggregateStatus(doc);
+        String previousStatus = DocumentStatusUtils.aggregate(doc);
 
         // 三个状态一起重置，并清掉上次的错误信息。
         // 用 LambdaUpdateWrapper 而不是 updateById：MP 的 updateById 默认忽略 null 字段，
         // 传 null 的 errorMessage 根本不会被写进 SQL，旧错误信息会残留。
         update(new LambdaUpdateWrapper<Document>()
                 .eq(Document::getId, documentId)
-                .set(Document::getParseStatus, PENDING)
-                .set(Document::getChunkStatus, PENDING)
-                .set(Document::getVectorStatus, PENDING)
+                .set(Document::getParseStatus, DocumentStatusUtils.PENDING)
+                .set(Document::getChunkStatus, DocumentStatusUtils.PENDING)
+                .set(Document::getVectorStatus, DocumentStatusUtils.PENDING)
                 .set(Document::getErrorMessage, null)
                 .set(Document::getUpdatedAt, LocalDateTime.now()));
 
@@ -281,7 +276,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         vo.setFileName(d.getFileName());
         vo.setFileType(d.getFileType());
         vo.setFileSize(d.getFileSize());
-        vo.setStatus(aggregateStatus(d));
+        vo.setStatus(DocumentStatusUtils.aggregate(d));
         vo.setParseStatus(d.getParseStatus());
         vo.setChunkStatus(d.getChunkStatus());
         vo.setVectorStatus(d.getVectorStatus());
@@ -289,32 +284,5 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         vo.setPageCount(d.getPageCount());
         vo.setCreatedAt(d.getCreatedAt());
         return vo;
-    }
-
-    /**
-     * 把库里三个独立状态字段聚合成一个对外状态
-     * <p>
-     * 注意：目前只到 UPLOADED 就停了（PENDING），后面的 PARSING / CHUNKING / EMBEDDING
-     * 要等 Python AI 服务接上才会出现。
-     */
-    private String aggregateStatus(Document d) {
-        if (FAILED.equals(d.getParseStatus())
-                || FAILED.equals(d.getChunkStatus())
-                || FAILED.equals(d.getVectorStatus())) {
-            return FAILED;
-        }
-        if (SUCCESS.equals(d.getVectorStatus())) {
-            return "COMPLETED";
-        }
-        if (SUCCESS.equals(d.getChunkStatus())) {
-            return "CHUNKED";
-        }
-        if (SUCCESS.equals(d.getParseStatus())) {
-            return "PARSED";
-        }
-        if (PARSING.equals(d.getParseStatus())) {
-            return "PARSING";
-        }
-        return "UPLOADED";
     }
 }
