@@ -2,6 +2,9 @@ package com.zest.mindforgeai.common.constant;
 
 import lombok.Getter;
 
+import java.util.Arrays;
+import java.util.Optional;
+
 /**
  * 统一错误码，对齐 API 文档 §三十四
  *
@@ -69,5 +72,23 @@ public enum ErrorCode {
     ErrorCode(int code, String message) {
         this.code = code;
         this.message = message;
+    }
+
+    /**
+     * 按数值反查枚举。
+     * <p>
+     * 用途：AI 服务（Python）返回的错误码和本枚举是<b>同一套数值</b>
+     * （见 Python 侧 {@code app/main.py} 的各 exception handler）。
+     * 拿到它的 code 后翻回枚举，能保住原始语义 ——
+     * 否则「这个 PDF 是扫描件、读不出文字」(42201) 会退化成一个笼统的 50201，
+     * 前端只能显示「AI 服务异常」，而真正该说的是「这个文件处理不了」。
+     * <p>
+     * 顺带 HTTP 状态码也是对的：{@code GlobalExceptionHandler} 用 {@code code / 100} 当状态码，
+     * 所以 42201 → 422、50201 → 502，和 Python 侧返回的状态一致。
+     *
+     * @return 没匹配到返回空（调用方自己决定兜底成哪个码）
+     */
+    public static Optional<ErrorCode> fromCode(int code) {
+        return Arrays.stream(values()).filter(e -> e.code == code).findFirst();
     }
 }

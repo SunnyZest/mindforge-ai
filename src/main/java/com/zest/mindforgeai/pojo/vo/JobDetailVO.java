@@ -57,6 +57,9 @@ public class JobDetailVO {
     @Schema(description = "解析状态")
     private String parseStatus;
 
+    @Schema(description = "解析失败原因；非 FAILED 状态时为 null")
+    private String errorMessage;
+
     @Schema(description = "1 启用 / 0 禁用")
     private Integer status;
 
@@ -78,6 +81,7 @@ public class JobDetailVO {
         vo.setRawContent(job.getRawContent());
         vo.setStructuredJson(structuredJson);
         vo.setParseStatus(job.getParseStatus());
+        vo.setErrorMessage(job.getErrorMessage());
         vo.setStatus(job.getStatus());
         vo.setCreatedAt(job.getCreatedAt());
         vo.setUpdatedAt(job.getUpdatedAt());

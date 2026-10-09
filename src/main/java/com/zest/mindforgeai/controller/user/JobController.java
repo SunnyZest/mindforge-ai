@@ -24,10 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 用户端职位 JD，路径对齐文档 §二十。
- * <p>
- * ⚠️ 文档里的 {@code POST /api/app/jobs/{id}/parse}（解析技能 / 经验 / 学历 / 职责）
- * <b>还没实现</b> —— 要等 Python AI 服务的解析接口。
- * 目前创建后 {@code parseStatus} 停在 {@code PENDING}。
  *
  * @author crx
  * @since 2026-10-08
@@ -82,5 +78,21 @@ public class JobController {
     public Result<Void> delete(@PathVariable Long id) {
         jobService.delete(id);
         return Result.success();
+    }
+
+    /**
+     * 触发解析：技能 / 经验 / 学历 / 职责。
+     * <p>
+     * ⚠️ <b>同步接口，要等模型生成</b>。解析期间 {@code parseStatus} 是 {@code PARSING}，
+     * 前端可以轮询 {@code GET /jobs/{id}} 看状态。
+     * <p>
+     * 失败时这个接口返回错误（含原因），同时职位的 {@code parseStatus} 变成
+     * {@code FAILED}、{@code errorMessage} 记下原因。
+     */
+    @Operation(summary = "解析职位 JD")
+    @PostMapping("/{id}/parse")
+    @PreAuthorize("hasAuthority('app:job:parse')")
+    public Result<JobDetailVO> parse(@PathVariable Long id) {
+        return Result.success(jobService.parse(id));
     }
 }

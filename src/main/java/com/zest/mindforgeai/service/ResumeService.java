@@ -12,8 +12,8 @@ import org.springframework.web.multipart.MultipartFile;
  * <b>所有方法都只操作当前登录用户自己的简历</b>：列表查询直接带 user_id 条件，
  * 按 id 操作的一律先走归属校验。
  * <p>
- * ⚠️ 解析相关的接口（{@code POST /resumes/{id}/parse}、{@code /optimize}）
- * 还没实现 —— 要等 Python AI 服务。目前上传后 {@code parseStatus} 停在 {@code PENDING}。
+ * ⚠️ {@code POST /resumes/{id}/optimize}（AI 优化建议）还没实现 —— 要等 Python 侧
+ * 提供 {@code /resumes/analyze}。
  *
  * @author crx
  * @since 2026-10-08
@@ -35,6 +35,37 @@ public interface ResumeService {
      * @param targetPosition 目标职位，可空
      */
     ResumeVO upload(MultipartFile file, String name, String targetPosition);
+
+    /**
+     * 解析简历（同步）。
+     * <p>
+     * 流程：取预签名下载地址 → 交给 Python AI 服务（下载 / 提取文本 / 结构化）→
+     * 结果落 {@code raw_content} / {@code summary} / {@code structured_json}，
+     * 并把技能重写进 {@code resume_skill}。
+     * <p>
+     * ⚠️ <b>这是个慢接口</b>：下载 + 文本提取 + 模型生成，一次可能几十秒。
+     * 期间 {@code parse_status} 是 {@code PARSING}，前端可以轮询
+     * {@link #getParsed(Long)} 看进度。
+     * <p>
+     * 失败时把 {@code parse_status} 置为 {@code FAILED} 并把原因写进
+     * {@code error_message}，然后<b>照常把异常抛出去</b> ——
+     * 前端既要能从响应里知道失败，也要能在详情页看到上次失败的原因。
+     * <p>
+     * ⚠️ <b>失败【不清空】已有的解析结果</b>（{@code raw_content} / {@code structured_json} /
+     * {@code resume_skill} 都保持原样）。所以这两个字段的语义是分开的：
+     * <ul>
+     *   <li>{@code structuredJson} —— <b>最近一次成功</b>解析的结果</li>
+     *   <li>{@code parseStatus} —— <b>最近一次尝试</b>的结果</li>
+     * </ul>
+     * 于是可能出现 {@code parseStatus = FAILED} 而 {@code structuredJson} 非空。
+     * 这是刻意的：正文没变，旧结果依然是对的，不该因为一次重试失败就把它删掉。
+     * 前端判断「有没有可用的解析结果」应该看 {@code structuredJson} 是否为空，
+     * 而不是看 {@code parseStatus} 是不是 SUCCESS。
+     *
+     * @throws com.zest.mindforgeai.common.exception.BizException
+     *         简历不存在 / 没有文件 / 正在解析中（40902）/ AI 服务不可用
+     */
+    ResumeParsedVO parse(Long id);
 
     /** 只取解析结果（前端轮询「解析好了没」用，响应体比详情小） */
     ResumeParsedVO getParsed(Long id);

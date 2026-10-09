@@ -1,6 +1,9 @@
 package com.zest.mindforgeai.client;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.AiServiceProperties;
@@ -10,8 +13,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.util.List;
@@ -36,12 +41,16 @@ public class AiServiceClient {
     private static final String HEADER_SERVICE_TOKEN = "X-Service-Token";
     private static final String PATH_CHAT = "/internal/ai/v1/rag/chat";
     private static final String PATH_SEARCH = "/internal/ai/v1/rag/search";
+    private static final String PATH_RESUME_PARSE = "/internal/ai/v1/resumes/parse";
+    private static final String PATH_JOB_PARSE = "/internal/ai/v1/jobs/parse";
 
     private final AiServiceProperties properties;
     private final RestClient restClient;
+    private final ObjectMapper objectMapper;
 
-    public AiServiceClient(AiServiceProperties properties) {
+    public AiServiceClient(AiServiceProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
+        this.objectMapper = objectMapper;
 
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout((int) properties.getConnectTimeout().toMillis());
@@ -72,6 +81,39 @@ public class AiServiceClient {
      */
     public SearchData search(SearchRequest request) {
         AiEnvelope<SearchData> envelope = post(PATH_SEARCH, request,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
+    /**
+     * 解析简历：Python 侧下载文件 → 提取文本 → 模型结构化成 JSON。
+     * <p>
+     * 文本提取（PDF / DOCX 解析）只有 Python 侧会做，Java 没有解析器 ——
+     * 所以提取出来的原文（{@code rawText}）会回传，由 Java 存进 {@code resume.raw_content}，
+     * 供后续匹配 / 优化复用，避免每次重新下载解析。
+     * <p>
+     * ⚠️ <b>同步接口，一次调用可能几十秒</b>（下载 + 提取 + 模型生成）。
+     * 读超时按最慢的接口配（默认 120 秒），配短了会大面积超时。
+     *
+     * @throws BizException AI_SERVICE_ERROR / AI_SERVICE_TIMEOUT，
+     *                      或由 Python 侧错误码翻译而来（如 42201 文件读不了）
+     */
+    public ResumeParseData parseResume(ResumeParseRequest request) {
+        AiEnvelope<ResumeParseData> envelope = post(PATH_RESUME_PARSE, request,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
+    /**
+     * 解析职位 JD：技能 / 经验 / 学历 / 职责。
+     * <p>
+     * 和 {@link #parseResume} 不同，JD 的输入就是 {@code job.raw_content}，
+     * 不需要下载文件，所以参数只有文本。
+     */
+    public JobParseData parseJob(JobParseRequest request) {
+        AiEnvelope<JobParseData> envelope = post(PATH_JOB_PARSE, request,
                 new ParameterizedTypeReference<>() {
                 });
         return envelope.data();
@@ -122,14 +164,61 @@ public class AiServiceClient {
                     "AI 服务暂时不可用，请稍后重试");
 
         } catch (RestClientResponseException e) {
+            // 注意变量名：不能叫 body —— 那是本方法参数的名字，Java 不允许内层作用域遮蔽参数
+            String errorBody = e.getResponseBodyAsString();
             log.error("AI 服务返回异常状态 path={} status={} body={}",
-                    path, e.getStatusCode(), e.getResponseBodyAsString());
+                    path, e.getStatusCode(), errorBody);
+
+            // ★ Python 侧的错误码和本项目的 ErrorCode 是【同一套数值】
+            //   （见 Python 侧 app/main.py 的各 handler），所以先试着翻回枚举。
+            //   不这么做的话，「这个 PDF 是扫描件、读不出文字」(42201) 会退化成一个
+            //   笼统的 50201「AI 服务异常」—— 用户看到「服务异常」会以为重试就好，
+            //   而真正该说的是「换个能复制文字的 PDF」。排查方向也被带偏。
+            AiEnvelope<Object> envelope = parseEnvelope(errorBody);
+            if (envelope != null && envelope.code() != null && envelope.code() != 0) {
+                throw new BizException(
+                        ErrorCode.fromCode(envelope.code()).orElse(ErrorCode.AI_SERVICE_ERROR),
+                        envelope.message());
+            }
             throw new BizException(ErrorCode.AI_SERVICE_ERROR,
                     "AI 服务返回异常状态：" + e.getStatusCode());
+
+        } catch (RestClientException e) {
+            // 走到这里说明【状态码是 2xx，但响应体读不出来】。
+            //
+            // 最常见的原因：本端读超时【先于】服务端触发 —— 连接被掐断，响应只剩半截，
+            // 连 Content-Type 都读不到，Spring 就按 application/octet-stream 去找消息转换器，
+            // 报「Error while extracting response ... content type [application/octet-stream]」。
+            // 这条信息完全指不出真因（看着像格式问题），实测被它带偏过一次，所以单独识别。
+            //
+            // 根治办法是让本端超时长于服务端（见 application.yml 的 read-timeout 说明）。
+            log.error("AI 服务响应读取失败（多半是本端读超时先于服务端触发）path={}", path, e);
+            throw new BizException(ErrorCode.AI_SERVICE_TIMEOUT,
+                    "AI 服务响应超时或连接中断，请稍后重试");
 
         } catch (Exception e) {
             log.error("调用 AI 服务出现未知错误 path={}", path, e);
             throw new BizException(ErrorCode.AI_SERVICE_ERROR, "调用 AI 服务失败");
+        }
+    }
+
+    /**
+     * 把响应体解析成信封，取里面的错误码和提示。
+     * <p>
+     * 解析不了就返回 null —— 走到这里说明状态码已经不对了，
+     * 响应体完全可能是网关 / 反代的 HTML 错误页，不是我们约定的 JSON。
+     * 那种情况下抛异常只会把原始错误盖掉。
+     */
+    private AiEnvelope<Object> parseEnvelope(String body) {
+        if (!StringUtils.hasText(body)) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(body, new TypeReference<>() {
+            });
+        } catch (Exception e) {
+            log.debug("AI 服务的异常响应不是约定的 JSON 信封，忽略：{}", e.getMessage());
+            return null;
         }
     }
 
@@ -181,5 +270,63 @@ public class AiServiceClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SearchData(List<Source> results, Integer total, Boolean reranked) {
+    }
+
+    // ---------- 简历解析 ----------
+
+    public record ResumeParseRequest(String userId,
+                                     String resumeId,
+                                     String fileUrl,
+                                     String fileType,
+                                     String targetPosition) {
+    }
+
+    /**
+     * 简历解析结果。
+     * <p>
+     * {@code structured} 用 {@link JsonNode} 而不是 String：它就是一段嵌套 JSON，
+     * 原样存进 {@code resume.structured_json}（JSON 列）即可，
+     * 当 String 收反而要再拼一次转义。
+     * <p>
+     * {@code rawText} / {@code pageCount} 是文本提取的产物，Java 侧自己取不到，
+     * 所以必须由 Python 回传（见 {@link #parseResume} 的说明）。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ResumeParseData(String rawText,
+                                  Integer pageCount,
+                                  String summary,
+                                  JsonNode structured,
+                                  List<Skill> skills,
+                                  Boolean truncated) {
+
+        /**
+         * 单项技能。
+         * <p>
+         * 名字就叫 {@code Skill} 而不是 {@code ResumeSkill} —— 后者是本项目
+         * {@code pojo.entity.ResumeSkill}（数据库实体）的名字，重名会让调用方
+         * 不得不用全限定名区分，读起来很别扭。
+         * <p>
+         * 字段名对齐 Python 侧 {@code resume._normalize_skills}。
+         */
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Skill(String name, String type, String proficiency, Double years) {
+        }
+    }
+
+    // ---------- 职位 JD 解析 ----------
+
+    public record JobParseRequest(String userId, String jobId, String text) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record JobParseData(String summary,
+                               JsonNode structured,
+                               List<Skill> skills,
+                               Boolean truncated) {
+
+        /** 字段名对齐 Python 侧 {@code job._normalize_skills} */
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Skill(String name, String type, String requiredLevel, Boolean required) {
+        }
     }
 }

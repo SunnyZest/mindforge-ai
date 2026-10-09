@@ -64,6 +64,15 @@ public class Resume implements Serializable {
     @Schema(description = "解析状态：PENDING / PARSING / SUCCESS / FAILED")
     private String parseStatus;
 
+    /**
+     * 解析失败原因，成功时为 null。
+     * <p>
+     * 存的是<b>给人看的一句话</b>，不是日志 —— 写入前会截断到 500 字符
+     * （列宽就是 500），完整堆栈在服务日志里。
+     */
+    @Schema(description = "解析失败原因（最近一次）；成功时为 null")
+    private String errorMessage;
+
     @Schema(description = "状态：1 启用 / 0 禁用")
     private Integer status;
 

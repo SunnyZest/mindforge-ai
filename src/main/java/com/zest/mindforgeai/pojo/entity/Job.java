@@ -69,6 +69,10 @@ public class Job implements Serializable {
     @Schema(description = "解析状态：PENDING / PARSING / SUCCESS / FAILED")
     private String parseStatus;
 
+    /** 解析失败原因，成功时为 null。理由同 {@link Resume#getErrorMessage()} */
+    @Schema(description = "解析失败原因（最近一次）；成功时为 null")
+    private String errorMessage;
+
     @Schema(description = "状态：1 启用 / 0 禁用")
     private Integer status;
 

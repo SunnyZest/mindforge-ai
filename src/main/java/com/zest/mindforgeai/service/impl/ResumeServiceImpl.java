@@ -1,17 +1,23 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zest.mindforgeai.client.AiServiceClient;
+import com.zest.mindforgeai.client.AiServiceClient.ResumeParseData;
+import com.zest.mindforgeai.client.AiServiceClient.ResumeParseRequest;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.StorageProperties;
 import com.zest.mindforgeai.mapper.ResumeMapper;
+import com.zest.mindforgeai.mapper.ResumeSkillMapper;
 import com.zest.mindforgeai.pojo.entity.Resume;
+import com.zest.mindforgeai.pojo.entity.ResumeSkill;
 import com.zest.mindforgeai.pojo.entity.SysFile;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.ResumeDetailVO;
@@ -24,9 +30,11 @@ import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -47,24 +55,39 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
     private static final long MAX_PAGE_SIZE = 100;
 
     private static final String PENDING = "PENDING";
+    private static final String PARSING = "PARSING";
+    private static final String SUCCESS = "SUCCESS";
+    private static final String FAILED = "FAILED";
 
     /** 与 resume.name varchar(100) / target_position varchar(128) 对齐 */
     private static final int MAX_NAME_LEN = 100;
     private static final int MAX_TARGET_POSITION_LEN = 128;
 
+    /** 与 resume.error_message varchar(500) 对齐 */
+    private static final int MAX_ERROR_LEN = 500;
+
     private final FileService fileService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
     private final StorageProperties storageProperties;
+    private final AiServiceClient aiServiceClient;
+    private final ResumeSkillMapper resumeSkillMapper;
+    private final TransactionTemplate transactionTemplate;
 
     public ResumeServiceImpl(FileService fileService,
                              AuditService auditService,
                              ObjectMapper objectMapper,
-                             StorageProperties storageProperties) {
+                             StorageProperties storageProperties,
+                             AiServiceClient aiServiceClient,
+                             ResumeSkillMapper resumeSkillMapper,
+                             TransactionTemplate transactionTemplate) {
         this.fileService = fileService;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
         this.storageProperties = storageProperties;
+        this.aiServiceClient = aiServiceClient;
+        this.resumeSkillMapper = resumeSkillMapper;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Override
@@ -130,7 +153,9 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
                 .setFileId(sysFile.getId())
                 .setName(resumeName)
                 .setTargetPosition(targetPosition)
-                // 文本提取和结构化都还没做 —— 等 Python AI 服务
+                // 上传只负责把文件存下来。文本提取和结构化要用户显式触发解析
+                // （POST /resumes/{id}/parse）—— 那是个几十秒的慢接口，
+                // 塞进上传请求里会让「上传」这个动作变得不可预期。
                 .setParseStatus(PENDING)
                 .setStatus(1);
         save(resume);
@@ -151,6 +176,74 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
     public ResumeParsedVO getParsed(Long id) {
         Resume resume = requireOwned(id);
         return ResumeParsedVO.of(resume, parseStructuredJson(resume.getStructuredJson()));
+    }
+
+    @Override
+    public ResumeParsedVO parse(Long id) {
+        Resume resume = requireOwned(id);
+
+        if (resume.getFileId() == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID,
+                    "这份简历没有原始文件，无法解析");
+        }
+        // 并发保护：解析要几十秒，这期间再点一次会起第二个 AI 调用 ——
+        // 两次结果互相覆盖，而且白烧一遍 token。
+        if (PARSING.equals(resume.getParseStatus())) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT, "简历正在解析中，请稍候");
+        }
+
+        SysFile file = loadFile(resume.getFileId());
+        if (file == null) {
+            throw new BizException(ErrorCode.RESOURCE_NOT_FOUND, "简历的原始文件记录已不存在");
+        }
+
+        // Python 侧的 parse() 按扩展名大写匹配（TXT / MD / MARKDOWN / PDF / DOCX / HTML / HTM）
+        String fileType = UploadConstants.extensionOf(file.getOriginalName()).toUpperCase();
+        if (!UploadConstants.RESUME_EXT.contains(fileType.toLowerCase())) {
+            throw new BizException(ErrorCode.FILE_TYPE_UNSUPPORTED, "不支持的文件类型：" + fileType);
+        }
+
+        // ★ 先标 PARSING 并【独立提交】。
+        //   这一步必须自己提交，不能和结果写在同一个事务里 ——
+        //   整段解析要几十秒，共用一个事务的话 PARSING 对外永远不可见（未提交），
+        //   前端轮询只会一直看到 PENDING，还以为没开始。
+        markParseStatus(id, PARSING, null);
+
+        try {
+            ResumeParseData data = aiServiceClient.parseResume(new ResumeParseRequest(
+                    String.valueOf(SecurityUtils.getUserId()),
+                    String.valueOf(id),
+                    // OSS 预签名地址由 Java 签发，Python 侧不需要任何 OSS 密钥
+                    fileService.downloadUrl(file),
+                    fileType,
+                    resume.getTargetPosition()));
+
+            persistParsed(id, data);
+
+            log.info("简历解析成功 resumeId={} 技能={} 项 文本截断={}",
+                    id, data.skills() == null ? 0 : data.skills().size(),
+                    Boolean.TRUE.equals(data.truncated()));
+
+            auditService.recordSuccess(AuditConstants.ACTION_RESUME_PARSE,
+                    AuditConstants.RESOURCE_RESUME, String.valueOf(id),
+                    Map.of("skills", data.skills() == null ? 0 : data.skills().size(),
+                           "truncated", Boolean.TRUE.equals(data.truncated())));
+
+        } catch (RuntimeException e) {
+            // 失败也要留痕：把原因写进 error_message，前端才能说出「为什么失败」，
+            // 而不是只显示一个 FAILED。写完【照常抛出】——
+            // 这次请求本身也是失败的，调用方必须知道。
+            //
+            // ⚠️ 刻意【不动】raw_content / structured_json / resume_skill：
+            //    正文没变，上一次成功的结果依然是对的。
+            //    因为一次重试失败就把用户已有的解析结果删掉，代价太大。
+            //    所以 parseStatus 是「最近一次尝试」，structuredJson 是「最近一次成功」。
+            markParseStatus(id, FAILED, truncateError(e.getMessage()));
+            log.error("简历解析失败 resumeId={}", id, e);
+            throw e;
+        }
+
+        return getParsed(id);
     }
 
     @Override
@@ -222,5 +315,90 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
             log.warn("结构化数据不是合法 JSON，按未解析处理：{}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 把解析结果落库（一个事务）。
+     * <p>
+     * <b>为什么用 {@link TransactionTemplate} 而不是 {@code @Transactional}</b>：
+     * <ul>
+     *   <li>整个 {@link #parse} 不能包事务 —— AI 调用要几十秒，
+     *       事务会一直占着数据库连接（连接池会被拖垮）</li>
+     *   <li>但「更新 resume + 重写技能」必须原子 —— 只成一半会留下
+     *       「有结构化数据、技能表却是空的」这种自相矛盾的状态</li>
+     *   <li>而在类内部直接调 {@code this.xxx()} 上的 {@code @Transactional}
+     *       不走 Spring 代理、不生效，所以这里显式用 TransactionTemplate</li>
+     * </ul>
+     */
+    private void persistParsed(Long id, ResumeParseData data) {
+        String structuredJson = data.structured() == null ? null : data.structured().toString();
+
+        transactionTemplate.executeWithoutResult(tx -> {
+            // ⚠️ 用 LambdaUpdateWrapper 而不是 updateById：
+            //    updateById 默认忽略 null 字段，清不掉上一次失败留下的 error_message
+            update(new LambdaUpdateWrapper<Resume>()
+                    .eq(Resume::getId, id)
+                    .set(Resume::getRawContent, data.rawText())
+                    .set(Resume::getSummary, data.summary())
+                    .set(Resume::getStructuredJson, structuredJson)
+                    .set(Resume::getParseStatus, SUCCESS)
+                    .set(Resume::getErrorMessage, null)
+                    .set(Resume::getUpdatedAt, LocalDateTime.now()));
+
+            // 技能：全删全插。resume_skill 没有 deleted 列，只能物理删。
+            // 重新解析时旧技能必须清掉 —— 否则「上次识别出、这次没识别出」的技能
+            // 会一直留在表里，后面按技能匹配 JD 时会多算出匹配项。
+            resumeSkillMapper.delete(new LambdaQueryWrapper<ResumeSkill>()
+                    .eq(ResumeSkill::getResumeId, id));
+
+            for (ResumeParseData.Skill skill : nullToEmpty(data.skills())) {
+                if (!StringUtils.hasText(skill.name())) {
+                    continue;
+                }
+                resumeSkillMapper.insert(new ResumeSkill()
+                        .setResumeId(id)
+                        .setSkillName(skill.name())
+                        .setSkillType(skill.type())
+                        .setProficiency(skill.proficiency())
+                        .setYearsExperience(toDecimal(skill.years())));
+            }
+        });
+    }
+
+    /**
+     * 只改解析状态（和失败原因）。
+     * <p>
+     * ⚠️ 刻意<b>不加 {@code @Transactional}</b>：它要立刻对外可见。
+     * {@code PARSING} 是给前端轮询看的中间态，包进事务就等于没写。
+     */
+    private void markParseStatus(Long id, String status, String errorMessage) {
+        update(new LambdaUpdateWrapper<Resume>()
+                .eq(Resume::getId, id)
+                .set(Resume::getParseStatus, status)
+                .set(Resume::getErrorMessage, errorMessage)
+                .set(Resume::getUpdatedAt, LocalDateTime.now()));
+    }
+
+    /** 失败原因截断到列宽。完整信息在服务日志里，这里只留给人看的一句 */
+    private String truncateError(String message) {
+        if (!StringUtils.hasText(message)) {
+            return "解析失败（上游未提供原因）";
+        }
+        return message.length() > MAX_ERROR_LEN ? message.substring(0, MAX_ERROR_LEN) : message;
+    }
+
+    /**
+     * Double → BigDecimal。
+     * <p>
+     * 用 {@code valueOf} 而不是 {@code new BigDecimal(double)} ——
+     * 后者会把 3.5 变成 3.500000000000000444089209850062616169452667236328125。
+     * 列是 decimal(4,1)，写进去再读出来就不是原来那个数了。
+     */
+    private BigDecimal toDecimal(Double value) {
+        return value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    private static <T> List<T> nullToEmpty(List<T> list) {
+        return list == null ? List.of() : list;
     }
 }

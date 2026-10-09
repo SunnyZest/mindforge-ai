@@ -114,9 +114,16 @@ mindforge:
   ai-service:
     base-url: http://127.0.0.1:8000
     connect-timeout: 3s
-    # ⚠️ 读超时要按最慢的接口定 —— 对话要等大模型逐 token 生成，
-    # 几十秒是正常的。配短了会大面积超时，且错误看起来像「AI 服务挂了」，容易误判。
-    read-timeout: 120s
+    # ⚠️ 读超时要按最慢的接口定 —— 对话和「简历/JD 解析」都要等大模型逐 token 生成。
+    # ★ 必须【大于】Python 侧的调用超时（settings.extract_timeout_seconds，默认 300 秒）。
+    #
+    #   踩过的坑：原来这里是 120s，Python 的模型超时也正好是 120s —— 两边赛跑，
+    #   Java 先掐断连接，于是响应只剩半截、连 Content-Type 都读不到，
+    #   客户端拿到的错误是「content type [application/octet-stream] 转换失败」，
+    #   看起来像格式问题，完全指不出真因是超时。实测详细简历要 121 秒。
+    #
+    #   层次关系记住：**客户端超时 > 服务端超时**，否则服务端报的错误永远传不回来。
+    read-timeout: 360s
 
   # AI 模型配置（管理端维护，阶段 17）。
   ai-config:

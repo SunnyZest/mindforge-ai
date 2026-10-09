@@ -12,11 +12,6 @@ import java.time.LocalDateTime;
  * <p>
  * 比 {@link ResumeDetailVO} 窄：只回解析相关的东西，不带文件信息。
  * 前端轮询「解析好了没」时用这个 —— 响应体小，适合高频调用。
- * <p>
- * ⚠️ <b>没有失败原因字段</b>：{@code resume} 表里没有 error_message 列
- * （{@code document} 表有，简历表当时没加）。
- * 所以解析失败时只能告诉前端「失败了」，说不出为什么。
- * 真要排查得去看 Python 侧的日志。
  *
  * @author crx
  * @since 2026-10-08
@@ -37,6 +32,9 @@ public class ResumeParsedVO {
     @Schema(description = "结构化简历数据（未解析时为 null）")
     private JsonNode structuredJson;
 
+    @Schema(description = "解析失败原因；非 FAILED 状态时为 null")
+    private String errorMessage;
+
     @Schema(description = "最后更新时间 —— 前端可据此判断解析是否推进过")
     private LocalDateTime updatedAt;
 
@@ -46,6 +44,7 @@ public class ResumeParsedVO {
         vo.setParseStatus(resume.getParseStatus());
         vo.setSummary(resume.getSummary());
         vo.setStructuredJson(structuredJson);
+        vo.setErrorMessage(resume.getErrorMessage());
         vo.setUpdatedAt(resume.getUpdatedAt());
         return vo;
     }

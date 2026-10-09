@@ -56,6 +56,9 @@ public class ResumeDetailVO {
     @Schema(description = "解析状态")
     private String parseStatus;
 
+    @Schema(description = "解析失败原因；非 FAILED 状态时为 null")
+    private String errorMessage;
+
     @Schema(description = "1 启用 / 0 禁用")
     private Integer status;
 
@@ -77,6 +80,7 @@ public class ResumeDetailVO {
         vo.setRawContent(resume.getRawContent());
         vo.setStructuredJson(structuredJson);
         vo.setParseStatus(resume.getParseStatus());
+        vo.setErrorMessage(resume.getErrorMessage());
         vo.setStatus(resume.getStatus());
         vo.setCreatedAt(resume.getCreatedAt());
         vo.setUpdatedAt(resume.getUpdatedAt());

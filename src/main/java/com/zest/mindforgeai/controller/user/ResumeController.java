@@ -25,13 +25,8 @@ import org.springframework.web.multipart.MultipartFile;
  * <p>
  * 上传走 multipart/form-data（和文档上传一致）。
  * <p>
- * ⚠️ 文档里的两个接口<b>还没实现</b>，要等 Python AI 服务：
- * <ul>
- *   <li>{@code POST /resumes/{id}/parse} —— 解析简历</li>
- *   <li>{@code POST /resumes/{id}/optimize} —— AI 优化建议</li>
- * </ul>
- * 目前上传后 {@code parseStatus} 停在 {@code PENDING}，
- * {@code GET /resumes/{id}/parsed} 会如实返回这个状态。
+ * ⚠️ 文档里的 {@code POST /resumes/{id}/optimize}（AI 优化建议）<b>还没实现</b> ——
+ * 要等 Python 侧提供 {@code /resumes/analyze}。
  *
  * @author crx
  * @since 2026-10-08
@@ -92,6 +87,24 @@ public class ResumeController {
     @PreAuthorize("hasAuthority('app:resume:read')")
     public Result<ResumeParsedVO> parsed(@PathVariable Long id) {
         return Result.success(resumeService.getParsed(id));
+    }
+
+    /**
+     * 触发解析。
+     * <p>
+     * ⚠️ <b>同步接口，一次可能几十秒</b>（下载 + 提取文本 + 模型生成）。
+     * 前端两种用法都行：把超时放宽直接等，或者调用后轮询
+     * {@code GET /resumes/{id}/parsed} —— 解析期间状态是 {@code PARSING}。
+     * <p>
+     * 解析失败时这个接口会返回错误（含原因），同时简历的
+     * {@code parseStatus} 变成 {@code FAILED}、{@code errorMessage} 记下原因，
+     * 详情和 {@code /parsed} 里都能看到。
+     */
+    @Operation(summary = "解析简历")
+    @PostMapping("/{id}/parse")
+    @PreAuthorize("hasAuthority('app:resume:parse')")
+    public Result<ResumeParsedVO> parse(@PathVariable Long id) {
+        return Result.success(resumeService.parse(id));
     }
 
     @Operation(summary = "删除简历")

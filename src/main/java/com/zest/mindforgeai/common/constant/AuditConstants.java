@@ -99,10 +99,21 @@ public final class AuditConstants {
     public static final String ACTION_RESUME_CREATE = "RESUME_CREATE";
     public static final String ACTION_RESUME_DELETE = "RESUME_DELETE";
 
+    /**
+     * 触发简历解析。
+     * <p>
+     * 解析会调外部模型、消耗 token，所以即使它「只是读取」也要留痕 ——
+     * 事后要能回答「这个月的 AI 调用是谁点的」。
+     */
+    public static final String ACTION_RESUME_PARSE = "RESUME_PARSE";
+
     /** 职位 JD 的增删改 */
     public static final String ACTION_JOB_CREATE = "JOB_CREATE";
     public static final String ACTION_JOB_UPDATE = "JOB_UPDATE";
     public static final String ACTION_JOB_DELETE = "JOB_DELETE";
+
+    /** 触发 JD 解析。理由同 {@link #ACTION_RESUME_PARSE} */
+    public static final String ACTION_JOB_PARSE = "JOB_PARSE";
 
     /* ---------- 资源类型 ---------- */
 

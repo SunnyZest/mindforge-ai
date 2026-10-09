@@ -31,4 +31,28 @@ public interface JobService {
 
     /** 删除（逻辑删除） */
     void delete(Long id);
+
+    /**
+     * 解析 JD（同步）：技能 / 经验 / 学历 / 职责。
+     * <p>
+     * 输入就是 {@code job.raw_content}（用户粘贴的那段 JD），不用下载文件 ——
+     * 这是它和简历解析最大的不同。
+     * <p>
+     * 结果落 {@code structured_json}，技能重写进 {@code job_skill}，
+     * 并按 AI 提取的值更新 {@code experience_required} / {@code education_required}
+     * （这两个是<b>派生数据</b>，以 JD 正文为准）。
+     * <p>
+     * ⚠️ 慢接口（要等模型生成），期间 {@code parse_status} 是 {@code PARSING}。
+     * 失败时置 {@code FAILED} + 写 {@code error_message}，并把异常抛出去。
+     * <p>
+     * ⚠️ <b>失败【不清空】已有的解析结果</b>。所以
+     * {@code structuredJson} 是「最近一次成功」的结果、
+     * {@code parseStatus} 是「最近一次尝试」的结果，两者可能不一致
+     * （正文没变时旧结果依然有效，不该因为一次重试失败就删掉）。
+     * 详细说明见 {@code ResumeService#parse}。
+     *
+     * @throws com.zest.mindforgeai.common.exception.BizException
+     *         职位不存在 / 没有 JD 正文 / 正在解析中（40902）/ AI 服务不可用
+     */
+    JobDetailVO parse(Long id);
 }

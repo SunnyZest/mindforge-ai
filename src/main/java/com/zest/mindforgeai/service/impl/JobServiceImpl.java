@@ -6,13 +6,18 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zest.mindforgeai.client.AiServiceClient;
+import com.zest.mindforgeai.client.AiServiceClient.JobParseData;
+import com.zest.mindforgeai.client.AiServiceClient.JobParseRequest;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.JobMapper;
+import com.zest.mindforgeai.mapper.JobSkillMapper;
 import com.zest.mindforgeai.pojo.dto.JobCreateDTO;
 import com.zest.mindforgeai.pojo.dto.JobUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.Job;
+import com.zest.mindforgeai.pojo.entity.JobSkill;
 import com.zest.mindforgeai.pojo.vo.JobDetailVO;
 import com.zest.mindforgeai.pojo.vo.JobVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
@@ -22,10 +27,12 @@ import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -42,13 +49,29 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     private static final long MAX_PAGE_SIZE = 100;
 
     private static final String PENDING = "PENDING";
+    private static final String PARSING = "PARSING";
+    private static final String SUCCESS = "SUCCESS";
+    private static final String FAILED = "FAILED";
+
+    /** 与 job.error_message varchar(500) 对齐 */
+    private static final int MAX_ERROR_LEN = 500;
 
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+    private final AiServiceClient aiServiceClient;
+    private final JobSkillMapper jobSkillMapper;
+    private final TransactionTemplate transactionTemplate;
 
-    public JobServiceImpl(AuditService auditService, ObjectMapper objectMapper) {
+    public JobServiceImpl(AuditService auditService,
+                          ObjectMapper objectMapper,
+                          AiServiceClient aiServiceClient,
+                          JobSkillMapper jobSkillMapper,
+                          TransactionTemplate transactionTemplate) {
         this.auditService = auditService;
         this.objectMapper = objectMapper;
+        this.aiServiceClient = aiServiceClient;
+        this.jobSkillMapper = jobSkillMapper;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Override
@@ -164,6 +187,53 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
                 Map.of("title", job.getTitle()));
     }
 
+    @Override
+    public JobDetailVO parse(Long id) {
+        Job job = requireOwned(id);
+
+        if (!StringUtils.hasText(job.getRawContent())) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "这个职位没有 JD 正文，无法解析");
+        }
+        // 并发保护：解析要等模型生成，这期间再点一次会起第二个调用 ——
+        // 两次结果互相覆盖，还白烧一遍 token。
+        if (PARSING.equals(job.getParseStatus())) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT, "职位正在解析中，请稍候");
+        }
+
+        // ★ 先标 PARSING 并【独立提交】，理由同简历解析：
+        //   共用一个事务的话，这个中间态对外永远不可见，前端轮询只会看到 PENDING。
+        markParseStatus(id, PARSING, null);
+
+        try {
+            JobParseData data = aiServiceClient.parseJob(new JobParseRequest(
+                    String.valueOf(SecurityUtils.getUserId()),
+                    String.valueOf(id),
+                    job.getRawContent()));
+
+            persistParsed(id, data);
+
+            log.info("JD 解析成功 jobId={} 技能={} 项", id,
+                    data.skills() == null ? 0 : data.skills().size());
+
+            auditService.recordSuccess(AuditConstants.ACTION_JOB_PARSE,
+                    AuditConstants.RESOURCE_JOB, String.valueOf(id),
+                    Map.of("skills", data.skills() == null ? 0 : data.skills().size(),
+                           "truncated", Boolean.TRUE.equals(data.truncated())));
+
+        } catch (RuntimeException e) {
+            // 失败留痕：原因写进 error_message，前端才能说出「为什么失败」。
+            // 写完照常抛出 —— 这次请求本身就是失败的。
+            //
+            // ⚠️ 刻意【不动】structured_json / job_skill：正文没变，
+            //    上一次成功的结果依然是对的，不该因为一次重试失败就删掉。
+            markParseStatus(id, FAILED, truncateError(e.getMessage()));
+            log.error("JD 解析失败 jobId={}", id, e);
+            throw e;
+        }
+
+        return getDetail(id);
+    }
+
     /* ---------- 内部工具 ---------- */
 
     /**
@@ -192,5 +262,91 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
             log.warn("结构化数据不是合法 JSON，按未解析处理：{}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 把解析结果落库（一个事务）。
+     * <p>
+     * 为什么用 {@link TransactionTemplate} 而不是 {@code @Transactional}，
+     * 见 {@code ResumeServiceImpl#persistParsed} 的说明 —— 同一套理由：
+     * AI 调用不能包在事务里（会占着连接几十秒），但落库这几步必须原子。
+     */
+    private void persistParsed(Long id, JobParseData data) {
+        JsonNode structured = data.structured();
+        String structuredJson = structured == null ? null : structured.toString();
+
+        // 经验和学历要求是【派生数据】，以 AI 从 JD 正文里读出来的为准 ——
+        // 建职位时用户可能没填、或者随手写了个大概。
+        // 正文里没写（AI 返回 null）就【保持原值不动】，不要覆盖成 null 把用户填的抹掉。
+        String experience = textOrNull(structured, "experienceRequired");
+        String education = textOrNull(structured, "educationRequired");
+
+        transactionTemplate.executeWithoutResult(tx -> {
+            // ⚠️ 用 LambdaUpdateWrapper 而不是 updateById：
+            //    updateById 默认忽略 null 字段，清不掉上一次失败留下的 error_message
+            update(new LambdaUpdateWrapper<Job>()
+                    .eq(Job::getId, id)
+                    .set(Job::getStructuredJson, structuredJson)
+                    .set(experience != null, Job::getExperienceRequired, experience)
+                    .set(education != null, Job::getEducationRequired, education)
+                    .set(Job::getParseStatus, SUCCESS)
+                    .set(Job::getErrorMessage, null)
+                    .set(Job::getUpdatedAt, LocalDateTime.now()));
+
+            // 技能：全删全插（job_skill 没有 deleted 列，物理删）。
+            // 重新解析时必须清掉旧的 —— 否则「上次识别出、这次没有」的要求会一直留着，
+            // 简历匹配时会被当成真实缺口。
+            jobSkillMapper.delete(new LambdaQueryWrapper<JobSkill>()
+                    .eq(JobSkill::getJobId, id));
+
+            for (JobParseData.Skill skill : nullToEmpty(data.skills())) {
+                if (!StringUtils.hasText(skill.name())) {
+                    continue;
+                }
+                jobSkillMapper.insert(new JobSkill()
+                        .setJobId(id)
+                        .setSkillName(skill.name())
+                        .setSkillType(skill.type())
+                        .setRequiredLevel(skill.requiredLevel())
+                        // 列是 tinyint，Python 给的是布尔。
+                        // null 按「加分项」处理 —— 和 Python 侧 _normalize_skills 的默认值一致
+                        .setRequired(Boolean.TRUE.equals(skill.required()) ? 1 : 0));
+            }
+        });
+    }
+
+    /**
+     * 只改解析状态（和失败原因）。
+     * <p>
+     * ⚠️ 刻意不加 {@code @Transactional}：{@code PARSING} 是给前端轮询看的中间态，
+     * 包进事务就等于没写。
+     */
+    private void markParseStatus(Long id, String status, String errorMessage) {
+        update(new LambdaUpdateWrapper<Job>()
+                .eq(Job::getId, id)
+                .set(Job::getParseStatus, status)
+                .set(Job::getErrorMessage, errorMessage)
+                .set(Job::getUpdatedAt, LocalDateTime.now()));
+    }
+
+    /** 失败原因截断到列宽。完整信息在服务日志里 */
+    private String truncateError(String message) {
+        if (!StringUtils.hasText(message)) {
+            return "解析失败（上游未提供原因）";
+        }
+        return message.length() > MAX_ERROR_LEN ? message.substring(0, MAX_ERROR_LEN) : message;
+    }
+
+    /** 从结构化数据里取一个字符串字段；字段不存在或是 null 都返回 null */
+    private String textOrNull(JsonNode node, String field) {
+        if (node == null) {
+            return null;
+        }
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() ? null : value.asText();
+    }
+
+    private static <T> List<T> nullToEmpty(List<T> list) {
+        return list == null ? List.of() : list;
     }
 }
