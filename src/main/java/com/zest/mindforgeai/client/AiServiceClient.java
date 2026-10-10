@@ -42,7 +42,11 @@ public class AiServiceClient {
     private static final String PATH_CHAT = "/internal/ai/v1/rag/chat";
     private static final String PATH_SEARCH = "/internal/ai/v1/rag/search";
     private static final String PATH_RESUME_PARSE = "/internal/ai/v1/resumes/parse";
+    private static final String PATH_RESUME_ANALYZE = "/internal/ai/v1/resumes/analyze";
     private static final String PATH_JOB_PARSE = "/internal/ai/v1/jobs/parse";
+    private static final String PATH_INTERVIEW_GENERATE = "/internal/ai/v1/interviews/generate";
+    private static final String PATH_INTERVIEW_ANALYZE = "/internal/ai/v1/interviews/analyze";
+    private static final String PATH_INTERVIEW_REPORT = "/internal/ai/v1/interviews/report";
 
     private final AiServiceProperties properties;
     private final RestClient restClient;
@@ -114,6 +118,76 @@ public class AiServiceClient {
      */
     public JobParseData parseJob(JobParseRequest request) {
         AiEnvelope<JobParseData> envelope = post(PATH_JOB_PARSE, request,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
+    /**
+     * 简历优化建议：针对目标岗位指出该改哪几句。
+     * <p>
+     * ⚠️ <b>只回建议，不改简历、也不落库</b>（文档 §二十一 明确要求
+     * 「AI 优化只返回建议，不直接覆盖原始简历」）。所以这个接口没有任何写操作，
+     * 调用方拿到结果直接返回给前端即可。
+     * <p>
+     * ★ 返回值里 {@code needsFact = true} 的条目表示「这里缺事实，要用户自己补」，
+     * 此时 {@code rewritten} 一定是 null、由 {@code missingFact} 说清要补什么。
+     * <b>前端必须把这两类分开展示</b> —— 混在一起用户会以为 AI 已经替他把经历写好了，
+     * 而编造的经历在面试里被追问两句就露馅。
+     * <p>
+     * ⚠️ 慢接口（模型要写 8 条建议，实测几分钟），读超时按最慢的接口配。
+     *
+     * @throws BizException AI_SERVICE_ERROR / AI_SERVICE_TIMEOUT
+     */
+    public ResumeAnalyzeData analyzeResume(ResumeAnalyzeRequest request) {
+        AiEnvelope<ResumeAnalyzeData> envelope = post(PATH_RESUME_ANALYZE, request,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
+    /**
+     * 面试出题：根据简历和 JD 一次性出完全部题目。
+     * <p>
+     * ⚠️ 每题都带 {@code expectedPoints}（参考答案要点），调用方必须把它存进
+     * {@code interview_question.expected_points} —— 后面评分时再带回来。
+     * 没有这个参照物，模型对同一份回答的打分会飘（这次 70 下次 85）。
+     *
+     * @throws BizException AI_SERVICE_ERROR / AI_SERVICE_TIMEOUT
+     */
+    public InterviewGenerateData generateQuestions(InterviewGenerateRequest request) {
+        AiEnvelope<InterviewGenerateData> envelope = post(PATH_INTERVIEW_GENERATE, request,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
+    /**
+     * 给单道题的回答打分并分析。
+     * <p>
+     * ⚠️ {@code answer} 允许传空串 —— 跳过一道题是正常行为，
+     * Python 侧会给低分而不是报错。报错的话用户跳过一题整场面试就卡住了。
+     *
+     * @throws BizException AI_SERVICE_ERROR / AI_SERVICE_TIMEOUT
+     */
+    public InterviewAnalyzeData analyzeAnswer(InterviewAnalyzeRequest request) {
+        AiEnvelope<InterviewAnalyzeData> envelope = post(PATH_INTERVIEW_ANALYZE, request,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
+    /**
+     * 生成整场面试的复盘报告。
+     * <p>
+     * ⚠️ 必须把逐题得分和逐题分析一起带上（{@link InterviewReportRequest#items()}）——
+     * 报告要求「四个分数和逐题得分对得上」，不给逐题分模型只能瞎给，
+     * 用户会发现「每题都 80 综合却给 60」而不再信任报告。
+     *
+     * @throws BizException AI_SERVICE_ERROR / AI_SERVICE_TIMEOUT
+     */
+    public InterviewReportData buildReport(InterviewReportRequest request) {
+        AiEnvelope<InterviewReportData> envelope = post(PATH_INTERVIEW_REPORT, request,
                 new ParameterizedTypeReference<>() {
                 });
         return envelope.data();
@@ -328,5 +402,152 @@ public class AiServiceClient {
         @JsonIgnoreProperties(ignoreUnknown = true)
         public record Skill(String name, String type, String requiredLevel, Boolean required) {
         }
+    }
+
+    // ---------- 简历优化建议 ----------
+
+    /**
+     * 简历分析请求。
+     * <p>
+     * ⚠️ 传的是<b>文本</b>而不是 resumeId —— Python 不连数据库（数据访问全在 Java），
+     * 所以 {@code resume.raw_content} / {@code job.raw_content} 由调用方带过去。
+     */
+    public record ResumeAnalyzeRequest(String userId,
+                                       String resumeId,
+                                       String resumeText,
+                                       String jobText,
+                                       String target) {
+    }
+
+    /**
+     * 简历分析结果。
+     * <p>
+     * 字段名对齐 Python 侧 {@code resume._normalize_analysis}。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ResumeAnalyzeData(Double overallScore,
+                                    String summary,
+                                    List<String> highlights,
+                                    List<AnalyzeItem> items,
+                                    Boolean truncated) {
+
+        /**
+         * 单条建议。
+         * <p>
+         * ★ {@code needsFact} 是本项目最重要的一个布尔：
+         * <ul>
+         *   <li>{@code false} —— 只是表达问题，{@code rewritten} 是改写后的句子，事实没变</li>
+         *   <li>{@code true} —— 这里缺事实，{@code rewritten} 一定是 null，
+         *       由 {@code missingFact} 说清要用户补什么</li>
+         * </ul>
+         * Python 侧已经保证了这个不变量（needsFact 为真时强制清空 rewritten），
+         * Java 这边只需如实透传。
+         */
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record AnalyzeItem(String target,
+                                  String original,
+                                  String issue,
+                                  String suggestion,
+                                  String rewritten,
+                                  Boolean needsFact,
+                                  String missingFact) {
+        }
+    }
+
+    // ---------- AI 面试 ----------
+
+    public record InterviewGenerateRequest(String userId,
+                                           String interviewId,
+                                           String interviewType,
+                                           String difficulty,
+                                           Integer questionCount,
+                                           String resumeText,
+                                           String jobText) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record InterviewGenerateData(List<Question> questions) {
+
+        /**
+         * 单道题。
+         * <p>
+         * {@code questionNo} 由 Python 侧重排成 1..N（不信模型给的编号），
+         * 所以这里直接用它当 {@code interview_question.question_no}。
+         */
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Question(Integer questionNo,
+                               String questionType,
+                               String question,
+                               List<String> expectedPoints,
+                               String difficulty) {
+        }
+    }
+
+    public record InterviewAnalyzeRequest(String userId,
+                                          String interviewId,
+                                          String question,
+                                          String answer,
+                                          List<String> expectedPoints,
+                                          String interviewType) {
+    }
+
+    /**
+     * 单题评分结果。
+     * <p>
+     * 字段名对齐 Python 侧 {@code interview._normalize_analysis}。
+     * 三个分数都是 <b>0~100</b>（不是文档示例里的 0~1）。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record InterviewAnalyzeData(Double score,
+                                       Technical technical,
+                                       Communication communication,
+                                       List<String> missingPoints,
+                                       String comment,
+                                       String followUp) {
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Technical(Double score, List<String> strengths, List<String> weaknesses) {
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Communication(Double clarity, List<String> issues) {
+        }
+    }
+
+    public record InterviewReportRequest(String userId,
+                                         String interviewId,
+                                         String interviewType,
+                                         String jobTitle,
+                                         List<ReportItem> items) {
+
+        /**
+         * 报告里的单题记录。
+         * <p>
+         * {@code analysis} 用 {@link JsonNode} —— 它就是 {@code interview_question.ai_analysis}
+         * 里存的那段 JSON，原样取出带过去，不用反序列化再序列化一遍。
+         */
+        public record ReportItem(Integer questionNo,
+                                 String question,
+                                 String answer,
+                                 Double score,
+                                 JsonNode analysis) {
+        }
+    }
+
+    /**
+     * 复盘报告。
+     * <p>
+     * 字段名对齐 Python 侧 {@code interview._normalize_report}，
+     * 也直接对齐 {@code interview_report} 表的列 —— 调用方拿到就能落库。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record InterviewReportData(Double overallScore,
+                                      Double technicalScore,
+                                      Double communicationScore,
+                                      Double problemSolvingScore,
+                                      List<String> strengths,
+                                      List<String> weaknesses,
+                                      List<String> suggestions,
+                                      String reportText) {
     }
 }

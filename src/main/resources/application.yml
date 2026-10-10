@@ -114,16 +114,24 @@ mindforge:
   ai-service:
     base-url: http://127.0.0.1:8000
     connect-timeout: 3s
-    # ⚠️ 读超时要按最慢的接口定 —— 对话和「简历/JD 解析」都要等大模型逐 token 生成。
-    # ★ 必须【大于】Python 侧的调用超时（settings.extract_timeout_seconds，默认 300 秒）。
+    # ⚠️ 读超时要按最慢的接口定 —— 对话、简历/JD 解析、简历优化、面试评分都要等模型生成。
     #
-    #   踩过的坑：原来这里是 120s，Python 的模型超时也正好是 120s —— 两边赛跑，
-    #   Java 先掐断连接，于是响应只剩半截、连 Content-Type 都读不到，
-    #   客户端拿到的错误是「content type [application/octet-stream] 转换失败」，
-    #   看起来像格式问题，完全指不出真因是超时。实测详细简历要 121 秒。
+    # ★ 规则：read-timeout > Python 的 extract_timeout_seconds × (1 + Python 的 llm_max_retries)
+    #   现在是 300 × 2 = 600 秒，所以这里配 660 秒（留一点余量）。
     #
-    #   层次关系记住：**客户端超时 > 服务端超时**，否则服务端报的错误永远传不回来。
-    read-timeout: 360s
+    #   为什么要把【重试】算进去（2026-10-10 踩的）：
+    #   OpenAI SDK 会自动重试，一次超时不会直接失败，而是再试一遍。
+    #   实测日志：简历「整体优化」第一次尝试跑满 300 秒超时 → SDK 重试
+    #   → 3 分钟后成功，全程约 8 分钟。而当时的 read-timeout 是 360 秒，
+    #   Java 早就放弃了 —— 用户看到「AI 服务超时」，其实 Python 那边成功了。
+    #
+    #   更早一次踩的是同一类坑的另一面：两边都配 120 秒，Java 先掐断连接，
+    #   响应只剩半截、连 Content-Type 都读不到，客户端拿到的是
+    #   「content type [application/octet-stream] 转换失败」——
+    #   看起来像格式问题，完全指不出真因是超时。
+    #
+    #   一句话：**客户端超时必须大于服务端的最坏耗时**，否则服务端的错误永远传不回来。
+    read-timeout: 660s
 
   # AI 模型配置（管理端维护，阶段 17）。
   ai-config:

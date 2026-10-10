@@ -34,10 +34,17 @@ public class AiServiceProperties {
     private Duration connectTimeout = Duration.ofSeconds(3);
 
     /**
-     * 读超时 —— <b>要按最慢的接口来定</b>。
+     * 读超时 —— <b>要按最慢的接口来定，而且必须大于 Python 侧的最坏耗时</b>。
      * <p>
-     * 对话接口要等大模型逐 token 生成完整回答，几十秒是正常的，
-     * 给 3 秒会大面积超时。检索接口快得多，但没必要分开配。
+     * Python 侧最坏耗时不是「单次超时」，而是
+     * {@code extract_timeout_seconds × (1 + llm_max_retries)} ——
+     * OpenAI SDK 会自动重试，一次超时不会直接失败，而是再试一遍。
+     * 现在是 300 × 2 = 600 秒，所以这里给 660 秒（留余量）。
+     * <p>
+     * ⚠️ 配小了的表现很有迷惑性：Java 先掐断连接，响应只剩半截、连 Content-Type
+     * 都读不到，客户端拿到的是「content type [application/octet-stream] 转换失败」
+     * 或者一个笼统的「AI 服务超时」—— 而 Python 那边其实还在跑、最后是成功的。
+     * 详细的两次踩坑记录见 {@code application.yml} 里这个字段的注释。
      */
-    private Duration readTimeout = Duration.ofSeconds(120);
+    private Duration readTimeout = Duration.ofSeconds(660);
 }

@@ -95,7 +95,7 @@ public final class AuditConstants {
     /** 给回答打分 */
     public static final String ACTION_RAG_FEEDBACK = "RAG_FEEDBACK";
 
-    /** 简历：上传（创建）与删除。解析/优化不记 —— 那两步是只读或只产生建议，不改数据 */
+    /** 简历：上传（创建）与删除 */
     public static final String ACTION_RESUME_CREATE = "RESUME_CREATE";
     public static final String ACTION_RESUME_DELETE = "RESUME_DELETE";
 
@@ -107,6 +107,15 @@ public final class AuditConstants {
      */
     public static final String ACTION_RESUME_PARSE = "RESUME_PARSE";
 
+    /**
+     * 触发简历 AI 优化。
+     * <p>
+     * 理由同 {@link #ACTION_RESUME_PARSE} —— 消耗 token 的调用都要留痕。
+     * 注意它<b>不写任何业务数据</b>（只回建议），留痕的目的是回答
+     * 「这个月的 AI 调用是谁点的」，不是「谁改了数据」。
+     */
+    public static final String ACTION_RESUME_OPTIMIZE = "RESUME_OPTIMIZE";
+
     /** 职位 JD 的增删改 */
     public static final String ACTION_JOB_CREATE = "JOB_CREATE";
     public static final String ACTION_JOB_UPDATE = "JOB_UPDATE";
@@ -114,6 +123,24 @@ public final class AuditConstants {
 
     /** 触发 JD 解析。理由同 {@link #ACTION_RESUME_PARSE} */
     public static final String ACTION_JOB_PARSE = "JOB_PARSE";
+
+    /** AI 面试：创建与删除 */
+    public static final String ACTION_INTERVIEW_CREATE = "INTERVIEW_CREATE";
+    public static final String ACTION_INTERVIEW_DELETE = "INTERVIEW_DELETE";
+
+    /**
+     * 给面试出题。
+     * <p>
+     * ⚠️ 和「创建面试」分开记：创建只是一行数据，出题是一次真实的模型调用。
+     * 合成一个 action 的话，「这个月面试功能烧了多少 token」就查不出来了。
+     */
+    public static final String ACTION_INTERVIEW_GENERATE = "INTERVIEW_GENERATE";
+
+    /** 提交单题回答（含 AI 评分） */
+    public static final String ACTION_INTERVIEW_ANSWER = "INTERVIEW_ANSWER";
+
+    /** 结束面试并生成复盘报告 */
+    public static final String ACTION_INTERVIEW_FINISH = "INTERVIEW_FINISH";
 
     /* ---------- 资源类型 ---------- */
 
@@ -130,4 +157,5 @@ public final class AuditConstants {
     public static final String RESOURCE_CONVERSATION = "CONVERSATION";
     public static final String RESOURCE_RESUME = "RESUME";
     public static final String RESOURCE_JOB = "JOB";
+    public static final String RESOURCE_INTERVIEW = "INTERVIEW";
 }

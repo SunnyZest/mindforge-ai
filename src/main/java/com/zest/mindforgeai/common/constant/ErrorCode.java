@@ -46,6 +46,9 @@ public enum ErrorCode {
     MESSAGE_NOT_FOUND(40407, "消息不存在"),
     JOB_NOT_FOUND(40408, "职位不存在"),
     RESUME_NOT_FOUND(40409, "简历不存在"),
+    INTERVIEW_NOT_FOUND(40410, "面试不存在"),
+    INTERVIEW_QUESTION_NOT_FOUND(40411, "面试题不存在"),
+    INTERVIEW_REPORT_NOT_FOUND(40412, "面试报告尚未生成"),
 
     METHOD_NOT_ALLOWED(40501, "请求方法不支持"),
 

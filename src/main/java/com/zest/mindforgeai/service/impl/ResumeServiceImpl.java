@@ -7,6 +7,8 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zest.mindforgeai.client.AiServiceClient;
+import com.zest.mindforgeai.client.AiServiceClient.ResumeAnalyzeData;
+import com.zest.mindforgeai.client.AiServiceClient.ResumeAnalyzeRequest;
 import com.zest.mindforgeai.client.AiServiceClient.ResumeParseData;
 import com.zest.mindforgeai.client.AiServiceClient.ResumeParseRequest;
 import com.zest.mindforgeai.common.constant.AuditConstants;
@@ -16,15 +18,19 @@ import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.StorageProperties;
 import com.zest.mindforgeai.mapper.ResumeMapper;
 import com.zest.mindforgeai.mapper.ResumeSkillMapper;
+import com.zest.mindforgeai.pojo.dto.ResumeOptimizeDTO;
 import com.zest.mindforgeai.pojo.entity.Resume;
 import com.zest.mindforgeai.pojo.entity.ResumeSkill;
 import com.zest.mindforgeai.pojo.entity.SysFile;
+import com.zest.mindforgeai.pojo.vo.JobDetailVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.ResumeDetailVO;
+import com.zest.mindforgeai.pojo.vo.ResumeOptimizeVO;
 import com.zest.mindforgeai.pojo.vo.ResumeParsedVO;
 import com.zest.mindforgeai.pojo.vo.ResumeVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.FileService;
+import com.zest.mindforgeai.service.JobService;
 import com.zest.mindforgeai.service.ResumeService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +44,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -66,12 +73,18 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
     /** 与 resume.error_message varchar(500) 对齐 */
     private static final int MAX_ERROR_LEN = 500;
 
+    /** 优化时允许指定的分析范围，对齐 Python 侧 {@code resume._ANALYZE_TARGETS} */
+    private static final Set<String> ANALYZE_TARGETS = Set.of(
+            "SUMMARY", "WORK_EXPERIENCE", "PROJECT_EXPERIENCE",
+            "SKILLS", "EDUCATION", "OVERALL");
+
     private final FileService fileService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
     private final StorageProperties storageProperties;
     private final AiServiceClient aiServiceClient;
     private final ResumeSkillMapper resumeSkillMapper;
+    private final JobService jobService;
     private final TransactionTemplate transactionTemplate;
 
     public ResumeServiceImpl(FileService fileService,
@@ -80,6 +93,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
                              StorageProperties storageProperties,
                              AiServiceClient aiServiceClient,
                              ResumeSkillMapper resumeSkillMapper,
+                             JobService jobService,
                              TransactionTemplate transactionTemplate) {
         this.fileService = fileService;
         this.auditService = auditService;
@@ -87,6 +101,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
         this.storageProperties = storageProperties;
         this.aiServiceClient = aiServiceClient;
         this.resumeSkillMapper = resumeSkillMapper;
+        this.jobService = jobService;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -176,6 +191,46 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
     public ResumeParsedVO getParsed(Long id) {
         Resume resume = requireOwned(id);
         return ResumeParsedVO.of(resume, parseStructuredJson(resume.getStructuredJson()));
+    }
+
+    @Override
+    public ResumeOptimizeVO optimize(Long id, ResumeOptimizeDTO dto) {
+        Resume resume = requireOwned(id);
+
+        // 优化是「读原文 → 给建议」，所以原文必须先有 —— 它由解析产生。
+        // ⚠️ 这里【不自动触发解析】：解析是几十秒的慢接口，偷偷串进来会让
+        //    这个请求的耗时变得完全不可预期（用户点「优化」却等了两分半），
+        //    而且失败时该报哪个错也说不清了。
+        if (!StringUtils.hasText(resume.getRawContent())) {
+            throw new BizException(ErrorCode.PARAM_INVALID,
+                    "这份简历还没有解析过，请先解析再优化");
+        }
+
+        String target = normalizeTarget(dto == null ? null : dto.getTarget());
+        String jobText = resolveJobText(dto == null ? null : dto.getJobId());
+
+        ResumeAnalyzeData data = aiServiceClient.analyzeResume(new ResumeAnalyzeRequest(
+                String.valueOf(SecurityUtils.getUserId()),
+                String.valueOf(id),
+                resume.getRawContent(),
+                jobText,
+                target));
+
+        ResumeOptimizeVO vo = toOptimizeVO(id, data);
+
+        log.info("简历优化 resumeId={} 建议={} 条（待补事实 {} 条）对照JD={}",
+                id, vo.getItems().size(), vo.getNeedsFactCount(),
+                StringUtils.hasText(jobText));
+
+        // 虽然一行业务数据都不写，但它烧了 token —— 留痕是为了能回答
+        // 「这个月的 AI 调用是谁点的」（同简历解析）。
+        auditService.recordSuccess(AuditConstants.ACTION_RESUME_OPTIMIZE,
+                AuditConstants.RESOURCE_RESUME, String.valueOf(id),
+                Map.of("itemCount", vo.getItems().size(),
+                       "needsFactCount", vo.getNeedsFactCount(),
+                       "withJob", StringUtils.hasText(jobText)));
+
+        return vo;
     }
 
     @Override
@@ -400,5 +455,84 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
 
     private static <T> List<T> nullToEmpty(List<T> list) {
         return list == null ? List.of() : list;
+    }
+
+    /**
+     * 校验并归一化分析范围。
+     * <p>
+     * 不在白名单里的值<b>报错</b>而不是静默忽略 —— 这个参数是用户在界面上选的，
+     * 传错了说明前端和这里的取值对不上。静默按「整体」处理会让这个不一致一直藏着。
+     */
+    private String normalizeTarget(String target) {
+        if (!StringUtils.hasText(target)) {
+            return null;        // 空 = 整体，交给 Python 走它自己的默认
+        }
+        String upper = target.trim().toUpperCase();
+        if (!ANALYZE_TARGETS.contains(upper)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "不支持的分析范围：" + target);
+        }
+        return upper;
+    }
+
+    /**
+     * 取目标岗位的 JD 原文，没传 jobId 就返回 null（= 按通用标准评）。
+     * <p>
+     * 走 {@link JobService#getDetail(Long)} 而不是直接查库：归属校验
+     * （不是自己的 → 404）在那边已经做好了，这里再来一遍既重复又容易漏。
+     */
+    private String resolveJobText(String jobId) {
+        if (!StringUtils.hasText(jobId)) {
+            return null;
+        }
+        JobDetailVO job = jobService.getDetail(parseId(jobId));
+        if (!StringUtils.hasText(job.getRawContent())) {
+            throw new BizException(ErrorCode.PARAM_INVALID,
+                    "目标职位还没有解析过，请先解析再优化");
+        }
+        return job.getRawContent();
+    }
+
+    /** 前端传的 id 是字符串（避免 JS 精度丢失），格式不对按参数错误报而不是 500 */
+    private Long parseId(String value) {
+        try {
+            return Long.valueOf(value.trim());
+        } catch (NumberFormatException e) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "id 格式不正确：" + value);
+        }
+    }
+
+    /** AI 返回的报文 → 对外 VO */
+    private ResumeOptimizeVO toOptimizeVO(Long resumeId, ResumeAnalyzeData data) {
+        List<ResumeOptimizeVO.OptimizeItem> items = nullToEmpty(data.items()).stream()
+                .map(src -> {
+                    boolean needsFact = Boolean.TRUE.equals(src.needsFact());
+
+                    ResumeOptimizeVO.OptimizeItem item = new ResumeOptimizeVO.OptimizeItem();
+                    item.setTarget(src.target());
+                    item.setOriginal(src.original());
+                    item.setIssue(src.issue());
+                    item.setSuggestion(src.suggestion());
+                    // ★ 再兜一道：needsFact 为真时绝不把 rewritten 透出去。
+                    //   Python 侧已经强制清空了（resume.py 的 _normalize_analysis），
+                    //   这里再挡一次是因为代价不对称 —— 多写两行 vs.
+                    //   让用户拿到一段编造的经历、面试时被追问两句就露馅。
+                    item.setRewritten(needsFact ? null : src.rewritten());
+                    item.setNeedsFact(needsFact);
+                    item.setMissingFact(needsFact ? src.missingFact() : null);
+                    return item;
+                })
+                .toList();
+
+        ResumeOptimizeVO vo = new ResumeOptimizeVO();
+        vo.setResumeId(String.valueOf(resumeId));
+        vo.setOverallScore(data.overallScore());
+        vo.setSummary(data.summary());
+        vo.setHighlights(nullToEmpty(data.highlights()));
+        vo.setItems(items);
+        vo.setNeedsFactCount((int) items.stream()
+                .filter(i -> Boolean.TRUE.equals(i.getNeedsFact()))
+                .count());
+        vo.setTruncated(data.truncated());
+        return vo;
     }
 }
