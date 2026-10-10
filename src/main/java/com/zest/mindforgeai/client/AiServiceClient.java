@@ -5,8 +5,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.context.TraceIdHolder;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.AiServiceProperties;
+import com.zest.mindforgeai.security.LoginUser;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
@@ -14,6 +16,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.ResourceAccessException;
@@ -45,6 +49,23 @@ import java.util.List;
 public class AiServiceClient {
 
     private static final String HEADER_SERVICE_TOKEN = "X-Service-Token";
+
+    /**
+     * 链路 id 的请求头名。
+     *
+     * <p>带过去是为了让 Python 上报 AI 使用量时能把它带回来 ——
+     * 这样从一条 traceId 就能反查出这次调用消耗了多少 token
+     * （{@code ai_usage_record.request_id}，见 {@code POST /internal/ai-usage}）。
+     */
+    private static final String HEADER_TRACE_ID = "X-Trace-Id";
+
+    /**
+     * 触发用户 id 的请求头名。
+     *
+     * <p>带过去是为了让 Python 上报 AI 使用量时知道「是谁触发的」——
+     * Python 那边不需要为记账去改一堆 service 函数的签名（见 {@code ai_usage} 的说明）。
+     */
+    private static final String HEADER_USER_ID = "X-User-Id";
     private static final String PATH_CHAT = "/internal/ai/v1/rag/chat";
     private static final String PATH_CHAT_STREAM = "/internal/ai/v1/rag/chat/stream";
     private static final String PATH_SEARCH = "/internal/ai/v1/rag/search";
@@ -128,6 +149,8 @@ public class AiServiceClient {
         try {
             restClient.post()
                     .uri(PATH_CHAT_STREAM)
+                    .header(HEADER_TRACE_ID, currentTraceId())
+                    .header(HEADER_USER_ID, currentUserId())
                     .body(request)
                     .exchange((req, res) -> {
                         readSseStream(res, handler);
@@ -359,6 +382,11 @@ public class AiServiceClient {
         try {
             AiEnvelope<T> envelope = restClient.post()
                     .uri(path)
+                    // ⚠️ traceId 必须用【请求级】header 带过去，不能放进 defaultHeader ——
+                    //    defaultHeader 在构造时求值一次，而 traceId 是每个请求一个（ThreadLocal），
+                    //    那样只会带上一串 null。
+                    .header(HEADER_TRACE_ID, currentTraceId())
+                    .header(HEADER_USER_ID, currentUserId())
                     .body(body)
                     .retrieve()
                     .body(typeRef);
@@ -419,6 +447,34 @@ public class AiServiceClient {
      * 响应体完全可能是网关 / 反代的 HTML 错误页，不是我们约定的 JSON。
      * 那种情况下抛异常只会把原始错误盖掉。
      */
+    /**
+     * 当前请求的 traceId；拿不到就给空串。
+     *
+     * <p>⚠️ 注意是「当前请求」—— 异步线程里 TraceIdHolder 是空的
+     * （ThreadLocal），所以调用方必须在请求线程上先捕获再带进去，
+     * 这一点和 {@code SecurityContext} 一样，见 ConversationController.sendMessageStream。
+     */
+    private static String currentTraceId() {
+        String traceId = TraceIdHolder.get();
+        return traceId == null ? "" : traceId;
+    }
+
+    /**
+     * 当前请求的用户 id；拿不到（未登录、或异步线程里上下文为空）就给空串。
+     *
+     * <p>⚠️ 不能直接用 {@code SecurityUtils.getUserId()} —— 它在未登录时抛 40101，
+     * 而「带上是谁触发的」只是记账用的附加信息，不该让一次已经通过鉴权的 AI 调用挂掉。
+     */
+    private static String currentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null
+                || !(authentication.getPrincipal() instanceof LoginUser loginUser)
+                || loginUser.getUserId() == null) {
+            return "";
+        }
+        return String.valueOf(loginUser.getUserId());
+    }
+
     private AiEnvelope<Object> parseEnvelope(String body) {
         if (!StringUtils.hasText(body)) {
             return null;
@@ -498,6 +554,13 @@ public class AiServiceClient {
                               String query,
                               Integer topK,
                               Boolean enableRerank,
+                              /**
+                               * 回答风格（sys_prompt 的版本行 id）。
+                               * <p>
+                               * 可空 = 用管理员设的默认风格。Python 侧找不到这条
+                               * （被下线了 / 不可选）时也会回退默认，不会让提问失败。
+                               */
+                              String promptId,
                               List<HistoryItem> history) {
     }
 

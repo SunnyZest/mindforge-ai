@@ -159,6 +159,19 @@ public final class AuditConstants {
      */
     public static final String ACTION_RESUME_MATCH = "RESUME_MATCH";
 
+    /**
+     * 提示词变更。
+     * <p>
+     * ⚠️ 改提示词会【立刻影响所有用户的 AI 输出】，是典型的高危操作，
+     * 所以创建 / 修改 / 发布 / 回滚 / 删除都要留痕 —— 出了问题要能查出
+     * 「是哪次改动、谁改的、从哪一版换到了哪一版」。
+     */
+    public static final String ACTION_PROMPT_CREATE = "PROMPT_CREATE";
+    public static final String ACTION_PROMPT_UPDATE = "PROMPT_UPDATE";
+    public static final String ACTION_PROMPT_PUBLISH = "PROMPT_PUBLISH";
+    public static final String ACTION_PROMPT_ROLLBACK = "PROMPT_ROLLBACK";
+    public static final String ACTION_PROMPT_DELETE = "PROMPT_DELETE";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
@@ -176,4 +189,5 @@ public final class AuditConstants {
     public static final String RESOURCE_JOB = "JOB";
     public static final String RESOURCE_INTERVIEW = "INTERVIEW";
     public static final String RESOURCE_RESUME_JOB_ANALYSIS = "RESUME_JOB_ANALYSIS";
+    public static final String RESOURCE_PROMPT = "PROMPT";
 }

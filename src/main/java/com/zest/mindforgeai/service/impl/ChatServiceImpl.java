@@ -114,6 +114,7 @@ public class ChatServiceImpl implements ChatService {
                 dto.getMessage(),
                 dto.getTopK(),
                 Boolean.TRUE.equals(dto.getEnableRerank()),
+                dto.getPromptId(),
                 history));
 
         // ④ 存助手消息 + 引用
@@ -169,6 +170,7 @@ public class ChatServiceImpl implements ChatService {
                 dto.getMessage(),
                 dto.getTopK(),
                 Boolean.TRUE.equals(dto.getEnableRerank()),
+                dto.getPromptId(),
                 history), new AiServiceClient.ChatStreamHandler() {
 
             @Override

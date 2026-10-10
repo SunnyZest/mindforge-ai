@@ -34,4 +34,14 @@ public class SendMessageDTO {
      */
     @Schema(description = "是否重排序（暂不生效）")
     private Boolean enableRerank = false;
+
+    /**
+     * 回答风格 id（来自 {@code GET /app/prompts?scene=RAG_CHAT}）。
+     * <p>
+     * 可空 = 用管理员设的默认风格。传了但那条已经下线/不可选时，
+     * 由 AI 服务回退到默认 —— 用户上一次选的风格被管理员下线了，
+     * 不该让他的提问直接失败。
+     */
+    @Schema(description = "回答风格 id，可空 = 默认风格")
+    private String promptId;
 }

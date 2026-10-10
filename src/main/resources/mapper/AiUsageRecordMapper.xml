@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.AiUsageRecordMapper">
+
+    <!--
+      AI 使用量的三个聚合查询（文档 §二十七）。
+
+      注意：
+      1. 时间范围一律【左闭右开】—— created_at >= from AND created_at < to。
+         用 BETWEEN 的话跨天统计会在边界上重复计入，而且「今天」到底算不算
+         最后一秒很难说清。右开之后「查 10 号」就是 [10号00:00, 11号00:00)。
+      2. ai_usage_record 没有 deleted 列，所以这里不需要过滤 deleted ——
+         它是只增不改的事实流水。
+      3. token 和耗时都用 IFNULL 兜底：一条记录都没有时 SUM/AVG 返回 NULL，
+         映射到 Java 的包装类型会得到 null，前端拿到 null 显示成空白。
+         返回 0 更符合预期。
+      4. SUM(status = 'SUCCESS') 是 MySQL 的写法：条件表达式求值成 1/0 再求和，
+         一次扫描同时算成功和失败数，不用再查一遍。
+      5. 别名显式写成 camelCase —— 不依赖 map-underscore-to-camel-case 的隐式转换。
+    -->
+
+    <select id="selectSummary" resultType="com.zest.mindforgeai.pojo.vo.UsageSummaryVO">
+        SELECT
+            COUNT(*)                                AS requests,
+            IFNULL(SUM(status = 'SUCCESS'), 0)      AS successCount,
+            IFNULL(SUM(status &lt;&gt; 'SUCCESS'), 0)      AS failedCount,
+            IFNULL(SUM(prompt_tokens), 0)           AS promptTokens,
+            IFNULL(SUM(completion_tokens), 0)       AS completionTokens,
+            IFNULL(SUM(total_tokens), 0)            AS totalTokens,
+            IFNULL(ROUND(AVG(duration_ms)), 0)      AS avgDurationMs
+        FROM ai_usage_record
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+    </select>
+
+    <select id="selectDaily" resultType="com.zest.mindforgeai.pojo.vo.UsageDailyVO">
+        SELECT
+            DATE(created_at)                        AS `date`,
+            COUNT(*)                                AS requests,
+            IFNULL(SUM(status = 'SUCCESS'), 0)      AS successCount,
+            IFNULL(SUM(status &lt;&gt; 'SUCCESS'), 0)      AS failedCount,
+            IFNULL(SUM(prompt_tokens), 0)           AS promptTokens,
+            IFNULL(SUM(completion_tokens), 0)       AS completionTokens,
+            IFNULL(SUM(total_tokens), 0)            AS totalTokens
+        FROM ai_usage_record
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+        GROUP BY DATE(created_at)
+        ORDER BY `date`
+    </select>
+
+    <select id="selectByModel" resultType="com.zest.mindforgeai.pojo.vo.UsageByModelVO">
+        SELECT
+            scene                                   AS scene,
+            provider                                AS provider,
+            model_name                              AS modelName,
+            COUNT(*)                                AS requests,
+            IFNULL(SUM(status = 'SUCCESS'), 0)      AS successCount,
+            IFNULL(SUM(status &lt;&gt; 'SUCCESS'), 0)      AS failedCount,
+            IFNULL(SUM(prompt_tokens), 0)           AS promptTokens,
+            IFNULL(SUM(completion_tokens), 0)       AS completionTokens,
+            IFNULL(SUM(total_tokens), 0)            AS totalTokens,
+            IFNULL(ROUND(AVG(duration_ms)), 0)      AS avgDurationMs
+        FROM ai_usage_record
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+        GROUP BY scene, provider, model_name
+        ORDER BY SUM(total_tokens) DESC
+    </select>
+
+</mapper>
