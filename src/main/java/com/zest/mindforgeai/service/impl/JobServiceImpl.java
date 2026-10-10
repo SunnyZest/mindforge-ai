@@ -14,10 +14,12 @@ import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.JobMapper;
 import com.zest.mindforgeai.mapper.JobSkillMapper;
+import com.zest.mindforgeai.mapper.ResumeJobAnalysisMapper;
 import com.zest.mindforgeai.pojo.dto.JobCreateDTO;
 import com.zest.mindforgeai.pojo.dto.JobUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.Job;
 import com.zest.mindforgeai.pojo.entity.JobSkill;
+import com.zest.mindforgeai.pojo.entity.ResumeJobAnalysis;
 import com.zest.mindforgeai.pojo.vo.JobDetailVO;
 import com.zest.mindforgeai.pojo.vo.JobVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
@@ -60,17 +62,20 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     private final ObjectMapper objectMapper;
     private final AiServiceClient aiServiceClient;
     private final JobSkillMapper jobSkillMapper;
+    private final ResumeJobAnalysisMapper resumeJobAnalysisMapper;
     private final TransactionTemplate transactionTemplate;
 
     public JobServiceImpl(AuditService auditService,
                           ObjectMapper objectMapper,
                           AiServiceClient aiServiceClient,
                           JobSkillMapper jobSkillMapper,
+                          ResumeJobAnalysisMapper resumeJobAnalysisMapper,
                           TransactionTemplate transactionTemplate) {
         this.auditService = auditService;
         this.objectMapper = objectMapper;
         this.aiServiceClient = aiServiceClient;
         this.jobSkillMapper = jobSkillMapper;
+        this.resumeJobAnalysisMapper = resumeJobAnalysisMapper;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -181,7 +186,16 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
         Job job = requireOwned(id);
         removeById(id);
 
-        log.info("删除职位 JD id={} title={}", id, job.getTitle());
+        // 技能和匹配分析【物理删】—— 这两张表都没有 deleted 列。
+        // 本项目所有表都没有外键，所以必须手动清，而且要和删除写在同一个事务里
+        // （清一半会留下孤儿数据）。匹配分析引用着 jobId，职位没了它就没意义了。
+        int skills = jobSkillMapper.delete(new LambdaQueryWrapper<JobSkill>()
+                .eq(JobSkill::getJobId, id));
+        int analyses = resumeJobAnalysisMapper.delete(new LambdaQueryWrapper<ResumeJobAnalysis>()
+                .eq(ResumeJobAnalysis::getJobId, id));
+
+        log.info("删除职位 JD id={} title={}（连带清掉 {} 项技能要求、{} 条匹配分析）",
+                id, job.getTitle(), skills, analyses);
         auditService.recordSuccess(AuditConstants.ACTION_JOB_DELETE,
                 AuditConstants.RESOURCE_JOB, String.valueOf(id),
                 Map.of("title", job.getTitle()));

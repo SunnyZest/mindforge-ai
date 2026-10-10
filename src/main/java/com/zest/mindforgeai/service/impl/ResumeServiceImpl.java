@@ -17,9 +17,11 @@ import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.StorageProperties;
 import com.zest.mindforgeai.mapper.ResumeMapper;
+import com.zest.mindforgeai.mapper.ResumeJobAnalysisMapper;
 import com.zest.mindforgeai.mapper.ResumeSkillMapper;
 import com.zest.mindforgeai.pojo.dto.ResumeOptimizeDTO;
 import com.zest.mindforgeai.pojo.entity.Resume;
+import com.zest.mindforgeai.pojo.entity.ResumeJobAnalysis;
 import com.zest.mindforgeai.pojo.entity.ResumeSkill;
 import com.zest.mindforgeai.pojo.entity.SysFile;
 import com.zest.mindforgeai.pojo.vo.JobDetailVO;
@@ -84,6 +86,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
     private final StorageProperties storageProperties;
     private final AiServiceClient aiServiceClient;
     private final ResumeSkillMapper resumeSkillMapper;
+    private final ResumeJobAnalysisMapper resumeJobAnalysisMapper;
     private final JobService jobService;
     private final TransactionTemplate transactionTemplate;
 
@@ -93,6 +96,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
                              StorageProperties storageProperties,
                              AiServiceClient aiServiceClient,
                              ResumeSkillMapper resumeSkillMapper,
+                             ResumeJobAnalysisMapper resumeJobAnalysisMapper,
                              JobService jobService,
                              TransactionTemplate transactionTemplate) {
         this.fileService = fileService;
@@ -101,6 +105,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
         this.storageProperties = storageProperties;
         this.aiServiceClient = aiServiceClient;
         this.resumeSkillMapper = resumeSkillMapper;
+        this.resumeJobAnalysisMapper = resumeJobAnalysisMapper;
         this.jobService = jobService;
         this.transactionTemplate = transactionTemplate;
     }
@@ -309,7 +314,15 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
         // ① 逻辑删除 resume（MP 自动设 deleted = 1）
         removeById(id);
 
-        // ② 逻辑删除 sys_file —— 必须走 softDelete 而不是 removeById，
+        // ② 技能和匹配分析【物理删】—— 这两张表都没有 deleted 列。
+        //    本项目所有表都没有外键，所以必须手动清，而且要和删除写在同一个事务里
+        //    （清一半会留下孤儿数据）。匹配分析引用着 resumeId，简历没了它就没意义了。
+        int skills = resumeSkillMapper.delete(new LambdaQueryWrapper<ResumeSkill>()
+                .eq(ResumeSkill::getResumeId, id));
+        int analyses = resumeJobAnalysisMapper.delete(new LambdaQueryWrapper<ResumeJobAnalysis>()
+                .eq(ResumeJobAnalysis::getResumeId, id));
+
+        // ③ 逻辑删除 sys_file —— 必须走 softDelete 而不是 removeById，
         //    因为清理任务靠 deleted_at 算恢复窗口，MP 不会写这个字段
         SysFile sysFile = loadFile(resume.getFileId());
         if (sysFile != null) {
@@ -318,8 +331,8 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
 
         // ⚠️ 不动 OSS 对象 —— 留恢复窗口，到期由 FilePurgeTask 判断引用计数后清理
         int retentionDays = storageProperties.getRetentionDays();
-        log.info("删除简历 resumeId={} name={}（OSS 对象保留 {} 天）",
-                id, resume.getName(), retentionDays);
+        log.info("删除简历 resumeId={} name={}（连带清掉 {} 项技能、{} 条匹配分析；OSS 对象保留 {} 天）",
+                id, resume.getName(), skills, analyses, retentionDays);
 
         auditService.recordSuccess(AuditConstants.ACTION_RESUME_DELETE,
                 AuditConstants.RESOURCE_RESUME, String.valueOf(id),
