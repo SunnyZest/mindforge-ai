@@ -1,0 +1,34 @@
+# 测试专用配置。
+#
+# 生效方式：测试类上 @ActiveProfiles({"dev", "test"}) —— test 排在 dev 之后，
+# 所以这里的键会覆盖 application-dev.yml 的同名键，其余（Redis 密码、JWT 密钥、
+# OSS 配置等）全部继承 dev，不用重复写一遍。
+#
+# 只做三件事：
+#   ① 把库换成 mindforge_test —— 测试会 DELETE 业务表，绝不能打开发库
+#   ② 关掉限流和登录锁定 —— 测试会反复打同一个接口，开着会被自己限流挡住
+#   ③ 关掉定时任务 —— FilePurgeTask 会真的去删 OSS 对象
+
+mindforge:
+  datasource:
+    # ⚠️ 只改库名，host/port/账号密码都继承 dev
+    database: mindforge_test
+
+  security:
+    rate-limit:
+      # 关掉的理由：认证接口只有 10 次/分钟，而测试里登录调用很密集，
+      # 会被自己的限流打成 42901，看起来像功能坏了。
+      # 限流本身的行为由 RateLimitFilter 的单元测试覆盖，不在这里测。
+      enabled: false
+    login-attempt:
+      # 关掉的理由：锁定会跨用例残留（同一个用户名连续失败 5 次就锁 15 分钟），
+      # 导致后面的用例莫名其妙 42902。锁定逻辑由 LoginAttemptServiceImplTest 覆盖。
+      enabled: false
+
+  internal:
+    # "-" 是 Spring 约定的「禁用此定时任务」写法
+    claim-timeout-cron: "-"
+  storage:
+    purge-cron: "-"
+  task:
+    refresh-token-cleanup-cron: "-"
