@@ -25,6 +25,16 @@ public interface UserProfileService {
     UserProfileVO updateProfile(UserProfileUpdateDTO dto);
 
     /**
+     * 上传头像并写进 {@code user.avatar_url}。
+     *
+     * <p>和 {@link #updateProfile} 的分工：那个接口收的是「头像 URL 字符串」，
+     * 是给「用外部图片地址」留的口子；真正传文件走这里。
+     *
+     * @return 更新后的个人资料（{@code avatarUrl} 已经指向新头像）
+     */
+    UserProfileVO uploadAvatar(org.springframework.web.multipart.MultipartFile file);
+
+    /**
      * 修改当前登录用户的密码。
      * <p>
      * 需要提供原密码，改完会撤销该用户<b>全部</b> refresh token

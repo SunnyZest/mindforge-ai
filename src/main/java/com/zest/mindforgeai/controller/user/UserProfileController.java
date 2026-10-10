@@ -11,10 +11,13 @@ import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 用户端个人资料，路径对齐文档 §十二。
@@ -55,6 +58,23 @@ public class UserProfileController {
     @PutMapping("/user/profile")
     public Result<UserProfileVO> updateProfile(@Valid @RequestBody UserProfileUpdateDTO dto) {
         return Result.success(userProfileService.updateProfile(dto));
+    }
+
+    /**
+     * 上传头像。
+     * <p>
+     * 和 {@code PUT /user/profile} 的分工：那个收的是「头像 URL 字符串」，
+     * 是给「用外部图片地址」留的口子；真正传文件走这里。
+     * <p>
+     * ⚠️ 本接口<b>没有权限码</b>，理由和本类其他接口一样：
+     * 它操作的永远是「当前登录用户自己」，目标 id 从 SecurityContext 取，不从入参取。
+     *
+     * @param file 图片文件（jpg / jpeg / png / webp / gif，≤2MB）
+     */
+    @Operation(summary = "上传头像")
+    @PostMapping("/user/avatar")
+    public Result<UserProfileVO> uploadAvatar(@RequestPart("file") MultipartFile file) {
+        return Result.success(userProfileService.uploadAvatar(file));
     }
 
     /**

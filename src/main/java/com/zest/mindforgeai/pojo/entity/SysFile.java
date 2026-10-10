@@ -51,6 +51,16 @@ public class SysFile implements Serializable {
     @Schema(description = "内容 SHA-256，用于秒传与去重")
     private String contentHash;
 
+    /**
+     * 业务类型：documents 文档 / resumes 简历 / avatars 头像。
+     * <p>
+     * ⚠️ 不能靠 object_key 的前缀判断业务 —— 秒传是按 (userId, contentHash) 去重的，
+     * <b>不区分业务</b>：同一份字节先当简历传、再当头像是，头像记录的 objectKey
+     * 会指向 {@code resumes/…}。所以让记录自己记住「我属于哪个业务」。
+     */
+    @Schema(description = "业务类型：documents / resumes / avatars")
+    private String bizType;
+
     @Schema(description = "存储类型：OSS / MINIO / LOCAL")
     private String storageType;
 

@@ -79,7 +79,7 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
                     userId, hash, existing.getObjectKey());
             return saveRecord(userId, originalName, existing.getObjectKey(),
                     existing.getBucketName(), existing.getStorageType(),
-                    file.getContentType(), content.length, hash);
+                    file.getContentType(), content.length, hash, bizType);
         }
 
         // 文件未上传
@@ -91,7 +91,7 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
 
         // 返回文件信息
         return saveRecord(userId, originalName, stored.getObjectKey(), stored.getBucketName(),
-                stored.getStorageType(), file.getContentType(), stored.getSize(), hash);
+                stored.getStorageType(), file.getContentType(), stored.getSize(), hash, bizType);
     }
 
     @Override
@@ -148,7 +148,8 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
     }
 
     private SysFile saveRecord(Long userId, String originalName, String objectKey, String bucketName,
-                               String storageType, String contentType, long size, String hash) {
+                               String storageType, String contentType, long size, String hash,
+                               String bizType) {
         SysFile record = new SysFile()
                 .setUserId(userId)
                 .setOriginalName(originalName)
@@ -157,8 +158,27 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
                 .setStorageType(storageType)
                 .setContentType(contentType)
                 .setFileSize(size)
-                .setContentHash(hash);
+                .setContentHash(hash)
+                // ⚠️ 必须记业务类型：秒传会跨业务复用 objectKey（同一份字节先当简历
+                //    再当头像是，这条记录的 objectKey 会指向 resumes/…），
+                //    所以判断「这是不是头像」只能靠这一列，不能靠 key 的前缀。
+                .setBizType(bizType);
         save(record);
         return record;
+    }
+
+    @Override
+    public SysFile getByBiz(Long fileId, String bizType) {
+        if (fileId == null || !StringUtils.hasText(bizType)) {
+            return null;
+        }
+        SysFile file = getById(fileId);
+        // 不存在 / 已逻辑删除 / 不是这个业务 —— 一律当「没有」
+        if (file == null
+                || Integer.valueOf(1).equals(file.getDeleted())
+                || !bizType.equals(file.getBizType())) {
+            return null;
+        }
+        return file;
     }
 }

@@ -41,6 +41,18 @@ public interface FileService extends IService<SysFile> {
     /** 按 id 取文件并校验归属（不存在 → 40402，不是自己的 → 40302） */
     SysFile getOwned(Long fileId);
 
+    /**
+     * 按 id 取文件，并校验它属于指定业务。
+     *
+     * <p>⚠️ 「不存在 / 已删除 / 业务不符」三种情况<b>统一返回 null</b>，
+     * 调用方一律当 404 —— 分开报等于告诉调用方「这个 id 存在，只是不是头像」，
+     * 那就成了探测文件 id 的工具。
+     *
+     * <p>这个方法是给<b>公开读</b>用的（头像），所以它必须自己兜住安全边界，
+     * 不能指望调用方再检查一遍。
+     */
+    SysFile getByBiz(Long fileId, String bizType);
+
     /** 生成预签名下载 URL */
     String downloadUrl(SysFile file);
 

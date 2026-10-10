@@ -42,6 +42,14 @@ public final class AuditConstants {
     /** 用户修改自己的资料 */
     public static final String ACTION_USER_UPDATE_PROFILE = "USER_UPDATE_PROFILE";
 
+    /**
+     * 上传头像。
+     * <p>
+     * 和改资料分开记：头像会产生一个【公开可读】的对象（见 /app/avatars/{fileId}），
+     * 出事时要能查出「谁在什么时候传了什么」，单独一个 action 才好过滤。
+     */
+    public static final String ACTION_USER_UPLOAD_AVATAR = "USER_UPLOAD_AVATAR";
+
     /** 用户修改密码（成功和失败都记 —— 拿着有效 token 却不知道原密码，是可疑信号） */
     public static final String ACTION_USER_CHANGE_PASSWORD = "USER_CHANGE_PASSWORD";
 

@@ -2,26 +2,34 @@ package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.UserMapper;
+import com.zest.mindforgeai.mapper.UserMapper;
+import com.zest.mindforgeai.pojo.entity.SysFile;
 import com.zest.mindforgeai.pojo.dto.ChangePasswordDTO;
 import com.zest.mindforgeai.pojo.dto.UserProfileUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.User;
 import com.zest.mindforgeai.pojo.vo.UserProfileVO;
 import com.zest.mindforgeai.pojo.vo.UserPublicVO;
 import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.FileService;
 import com.zest.mindforgeai.service.RefreshTokenService;
 import com.zest.mindforgeai.service.UserProfileService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeSet;
 
 /**
  * 用户自己的资料服务实现
@@ -37,13 +45,16 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
     private final PasswordEncoder passwordEncoder;
     private final RefreshTokenService refreshTokenService;
     private final AuditService auditService;
+    private final FileService fileService;
 
     public UserProfileServiceImpl(PasswordEncoder passwordEncoder,
                                   RefreshTokenService refreshTokenService,
-                                  AuditService auditService) {
+                                  AuditService auditService,
+                                  FileService fileService) {
         this.passwordEncoder = passwordEncoder;
         this.refreshTokenService = refreshTokenService;
         this.auditService = auditService;
+        this.fileService = fileService;
     }
 
     @Override
@@ -77,6 +88,49 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
         detail.put("nicknameChanged", dto.getNickname() != null);
         detail.put("avatarChanged", dto.getAvatarUrl() != null);
         auditService.recordSuccess(AuditConstants.ACTION_USER_UPDATE_PROFILE,
+                AuditConstants.RESOURCE_USER, String.valueOf(userId), detail);
+
+        return UserProfileVO.of(getById(userId));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public UserProfileVO uploadAvatar(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "请选择要上传的图片");
+        }
+        // 先按字节数拦一道 —— 让 10MB 的文件在进 OSS 之前就被挡掉
+        if (file.getSize() > UploadConstants.MAX_AVATAR_BYTES) {
+            throw new BizException(ErrorCode.FILE_TOO_LARGE,
+                    "头像不能超过 " + (UploadConstants.MAX_AVATAR_BYTES / 1024 / 1024) + "MB");
+        }
+        String ext = UploadConstants.extensionOf(file.getOriginalFilename());
+        if (!UploadConstants.AVATAR_EXT.contains(ext)) {
+            // ⚠️ 只放图片。头像的读取接口是【公开】的（<img src> 带不上 Authorization），
+            //    口子越小越好 —— 放 PDF 进去等于开了一个公开的文件分享通道。
+            throw new BizException(ErrorCode.FILE_TYPE_UNSUPPORTED,
+                    "头像只支持 " + String.join(" / ", new TreeSet<>(UploadConstants.AVATAR_EXT)));
+        }
+
+        Long userId = SecurityUtils.getUserId();
+        SysFile stored = fileService.upload(file, FileService.BIZ_AVATAR);
+
+        // ★ 存的是【后端路径】而不是 OSS 预签名 URL ——
+        //   预签名会过期，存进库里过几天头像就全裂了；这里每次请求现签一个。
+        String avatarUrl = UploadConstants.AVATAR_URL_PREFIX + stored.getId();
+        updateById(new User()
+                .setId(userId)
+                .setAvatarUrl(avatarUrl)
+                .setUpdatedAt(LocalDateTime.now()));
+
+        log.info("用户上传头像 userId={} fileId={} size={}", userId, stored.getId(), stored.getFileSize());
+
+        // 只记「传了多大、什么类型」，不记 URL —— 审计表不该变成文件清单
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("fileId", String.valueOf(stored.getId()));
+        detail.put("fileSize", stored.getFileSize());
+        detail.put("contentType", stored.getContentType());
+        auditService.recordSuccess(AuditConstants.ACTION_USER_UPLOAD_AVATAR,
                 AuditConstants.RESOURCE_USER, String.valueOf(userId), detail);
 
         return UserProfileVO.of(getById(userId));

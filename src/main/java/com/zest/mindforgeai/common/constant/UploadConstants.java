@@ -28,6 +28,29 @@ public final class UploadConstants {
     public static final Set<String> RESUME_EXT =
             Set.of("pdf", "docx", "txt", "md", "markdown", "html", "htm");
 
+    /**
+     * 头像允许的类型。
+     * <p>
+     * ⚠️ <b>只放图片</b>，而且和上面两个白名单刻意不共用 —— 头像要能被
+     * {@code <img src>} 直接加载，所以它的读取接口是【公开】的（img 带不上
+     * Authorization 头）。公开读的口子越小越好，绝不能顺着它把简历 / 文档也读走。
+     */
+    public static final Set<String> AVATAR_EXT =
+            Set.of("jpg", "jpeg", "png", "webp", "gif");
+
+    /** 头像大小上限：2MB。头像每次打开页面都要加载，太大影响首屏。 */
+    public static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
+
+    /**
+     * 头像的对外访问路径前缀。
+     * <p>
+     * ⚠️ 存进 {@code user.avatar_url} 的是<b>这个后端路径</b>，不是 OSS 的预签名 URL ——
+     * 预签名会过期，存进库里过几天头像就全裂了。这里每次请求现签一个。
+     * <p>
+     * 含 context-path（{@code /api}），因为前端直接把它塞进 {@code <img src>}。
+     */
+    public static final String AVATAR_URL_PREFIX = "/api/app/avatars/";
+
     private UploadConstants() {
     }
 

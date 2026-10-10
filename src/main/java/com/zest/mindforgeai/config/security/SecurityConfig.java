@@ -39,6 +39,11 @@ public class SecurityConfig {
             // logout：靠 body 里的 refreshToken 认证，不依赖 access token
             "/app/auth/refresh",
             "/app/auth/logout",
+            // ⚠️ 头像必须公开：它要能被 <img src> 直接加载，
+            //    而 img 标签【带不上】Authorization 头。
+            //    安全边界由接口自己兜（只允许 biz_type=avatars 的文件），
+            //    不是靠鉴权 —— 所以那个接口里绝不能省掉业务类型校验。
+            "/app/avatars/**",
             "/admin/auth/login",
             "/admin/auth/refresh",
             "/admin/auth/logout",
