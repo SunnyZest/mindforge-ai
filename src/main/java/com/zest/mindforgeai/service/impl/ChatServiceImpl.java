@@ -96,12 +96,9 @@ public class ChatServiceImpl implements ChatService {
      */
     @Override
     public SendMessageResultVO sendMessage(Long conversationId, SendMessageDTO dto) {
-        Conversation conversation = conversationService.requireOwned(conversationId);
+        Conversation conversation = requireChattable(conversationId);
         Long userId = SecurityUtils.getUserId();
         Long kbId = conversation.getKnowledgeBaseId();
-        if (kbId == null) {
-            throw new BizException(ErrorCode.STATUS_CONFLICT, "该会话没有关联知识库，无法提问");
-        }
 
         // ① 存用户消息
         saveMessage(conversationId, userId, ChatConstants.ROLE_USER, dto.getMessage(), null);
@@ -139,6 +136,86 @@ public class ChatServiceImpl implements ChatService {
         result.setHasContext(data.hasContext());
         result.setHasAnswer(data.hasAnswer());
         return result;
+    }
+
+    @Override
+    public void checkStreamable(Long conversationId) {
+        // 只做校验，不产生任何副作用 —— 目的是让「会话不存在」这类错误
+        // 在【开流之前】就能返回正常的 HTTP 状态码（见接口上的说明）
+        requireChattable(conversationId);
+    }
+
+    @Override
+    public void chatStream(Long conversationId, SendMessageDTO dto, ChatStreamHandler handler) {
+        Conversation conversation = requireChattable(conversationId);
+        Long userId = SecurityUtils.getUserId();
+        Long kbId = conversation.getKnowledgeBaseId();
+
+        // ① 存用户消息 —— 和同步版一致：先落库再调 AI。
+        //    这样即使 AI 全程失败，用户刷新后也看得到自己发过什么。
+        saveMessage(conversationId, userId, ChatConstants.ROLE_USER, dto.getMessage(), null);
+
+        // ② 取历史（在存完用户消息之后取，上下文才完整）
+        List<AiServiceClient.HistoryItem> history = loadHistory(conversationId);
+
+        // ③ 累积器：引用和回答都要等到 done 才能一起落库
+        List<AiServiceClient.Source> collected = new ArrayList<>();
+        StringBuilder streamed = new StringBuilder();
+
+        aiClient.chatStream(new AiServiceClient.ChatRequest(
+                String.valueOf(userId),
+                String.valueOf(kbId),
+                String.valueOf(conversationId),
+                dto.getMessage(),
+                dto.getTopK(),
+                Boolean.TRUE.equals(dto.getEnableRerank()),
+                history), new AiServiceClient.ChatStreamHandler() {
+
+            @Override
+            public void onSources(List<AiServiceClient.Source> sources,
+                                  boolean hasContext, boolean contextTruncated) {
+                collected.clear();
+                if (sources != null) {
+                    collected.addAll(sources);
+                }
+                // ★ 立刻推给前端 —— 这就是流式的价值：用户马上看到「参考了哪几段」，
+                //   不用等模型生成完。攒着最后一起给等于白做流式。
+                handler.onSources(toSourceVOs(sources), hasContext, contextTruncated);
+            }
+
+            @Override
+            public void onDelta(String text) {
+                streamed.append(text);
+                handler.onDelta(text);
+            }
+
+            @Override
+            public void onDone(String fullAnswer, boolean hasAnswer) {
+                // 用 AI 回传的完整回答落库，而不是自己拼的增量 ——
+                // 增量拼接偶尔会漏字（网络分包、编码），完整回答才是权威版本。
+                String answer = fullAnswer != null ? fullAnswer : streamed.toString();
+
+                Long assistantId = saveMessage(conversationId, userId,
+                        ChatConstants.ROLE_ASSISTANT, answer, conversation.getModelName());
+                List<SourceVO> sources = saveSources(assistantId, collected);
+                touchConversation(conversationId);
+
+                log.info("流式对话完成 conversationId={} 回答 {} 字，引用 {} 条",
+                        conversationId, answer.length(), sources.size());
+
+                handler.onDone(String.valueOf(assistantId), answer, hasAnswer);
+            }
+
+            @Override
+            public void onError(int code, String message) {
+                // ⚠️ 刻意【不落库】：半截回答存下来会和完整回答长得一模一样，
+                //    下一轮还会被当成历史喂回模型，等于让它以为自己上次就是这么答的。
+                //    宁可丢掉，让用户重试（用户消息已经存了，会话不会空）。
+                log.warn("流式对话出错 conversationId={} code={} message={}（已输出 {} 字，未落库）",
+                        conversationId, code, message, streamed.length());
+                handler.onError(code, message);
+            }
+        });
     }
 
     @Override
@@ -192,6 +269,20 @@ public class ChatServiceImpl implements ChatService {
     }
 
     // ---------- 内部 ----------
+
+    /**
+     * 校验会话可用于提问：存在、属于当前用户、关联了知识库。
+     * <p>
+     * 同步版和流式版<b>共用</b>这一处判断 —— 两边各写一份的话，
+     * 迟早出现「同步报 409、流式却已经开始调模型了」这种差异，很难查。
+     */
+    private Conversation requireChattable(Long conversationId) {
+        Conversation conversation = conversationService.requireOwned(conversationId);
+        if (conversation.getKnowledgeBaseId() == null) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT, "该会话没有关联知识库，无法提问");
+        }
+        return conversation;
+    }
 
     private Long saveMessage(Long conversationId, Long userId, String role,
                              String content, String modelName) {

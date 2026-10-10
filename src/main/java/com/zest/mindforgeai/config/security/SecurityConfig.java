@@ -5,6 +5,7 @@ import com.zest.mindforgeai.security.JwtAccessDeniedHandler;
 import com.zest.mindforgeai.security.JwtAuthenticationEntryPoint;
 import com.zest.mindforgeai.security.InternalTokenFilter;
 import com.zest.mindforgeai.security.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -73,6 +74,22 @@ public class SecurityConfig {
                 .sessionManagement(sm ->
                         sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // ⚠️⚠️ 异步派发（ASYNC）必须放行 —— SSE / DeferredResult 这类异步请求
+                        //   在响应写完之后，容器会【再走一遍过滤器链】（DispatcherType.ASYNC）。
+                        //   而 SecurityContextHolderFilter 是 OncePerRequestFilter，
+                        //   对异步派发默认跳过（shouldNotFilterAsyncDispatch = true），
+                        //   所以这一趟里 SecurityContext 是空的 —— 但 AuthorizationFilter 照跑，
+                        //   于是 anyRequest().authenticated() 会把【已经成功的请求】判成 Access Denied。
+                        //
+                        //   实测（2026-10-10）：流式对话内容正常推完、也落库了，
+                        //   但收尾时报 AuthorizationDeniedException，客户端拿到的是
+                        //   「peer closed connection without sending complete message body」——
+                        //   看起来像「后端把连接掐了」，完全指不出真因是安全过滤器。
+                        //
+                        //   ⚠️ 放行它是安全的：DispatcherType 由容器按派发方式设置，客户端伪造不了；
+                        //   而且能走到这一趟，说明最初的 REQUEST 派发已经完整鉴权过了
+                        //   （JWT + @PreAuthorize 都在那一趟做的）。
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         // 白名单：相当于 excludePathPatterns
                         .requestMatchers(PUBLIC_URLS).permitAll()
                         // 内部接口：不走 JWT —— 调用方是 Python AI 服务，它没有用户身份，

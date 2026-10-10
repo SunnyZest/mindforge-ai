@@ -10,7 +10,9 @@ import com.zest.mindforgeai.common.properties.AiServiceProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -19,6 +21,10 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -40,6 +46,7 @@ public class AiServiceClient {
 
     private static final String HEADER_SERVICE_TOKEN = "X-Service-Token";
     private static final String PATH_CHAT = "/internal/ai/v1/rag/chat";
+    private static final String PATH_CHAT_STREAM = "/internal/ai/v1/rag/chat/stream";
     private static final String PATH_SEARCH = "/internal/ai/v1/rag/search";
     private static final String PATH_RESUME_PARSE = "/internal/ai/v1/resumes/parse";
     private static final String PATH_RESUME_ANALYZE = "/internal/ai/v1/resumes/analyze";
@@ -47,6 +54,9 @@ public class AiServiceClient {
     private static final String PATH_INTERVIEW_GENERATE = "/internal/ai/v1/interviews/generate";
     private static final String PATH_INTERVIEW_ANALYZE = "/internal/ai/v1/interviews/analyze";
     private static final String PATH_INTERVIEW_REPORT = "/internal/ai/v1/interviews/report";
+
+    /** SSE 里数据行的前缀（Python 侧格式是 {@code data: {json}}） */
+    private static final String SSE_DATA_PREFIX = "data:";
 
     private final AiServiceProperties properties;
     private final RestClient restClient;
@@ -88,6 +98,122 @@ public class AiServiceClient {
                 new ParameterizedTypeReference<>() {
                 });
         return envelope.data();
+    }
+
+    /**
+     * 流式对话：边生成边把事件回调给调用方。
+     * <p>
+     * Python 侧返回的是 SSE（{@code text/event-stream}），事件序列：
+     * <pre>
+     *   sources → delta × N → done
+     *                    ↘ error（出问题时【代替】done）
+     * </pre>
+     * <b>为什么先推 sources</b>：检索在调模型之前就完成了，先推给前端，
+     * 用户能立刻看到「参考了哪几段」，不用等生成完（实测首字节 0.45 秒，
+     * 而完整回答要 8.7 秒）。
+     * <p>
+     * ⚠️ <b>这是同步阻塞方法</b> —— 它会一直读到流结束（几十秒）才返回。
+     * 调用方如果是在 HTTP 请求线程上调的，必须自己丢到异步线程里。
+     * <p>
+     * ⚠️ <b>只解析 {@code data:} 行，不看 {@code event:} 行</b> ——
+     * Python 侧刻意把 {@code type} 也放进了 data 里，就是为了让这里省掉一个状态机
+     * （不用记住「上一条 event 是什么」）。见 Python 侧 {@code _sse()} 的说明。
+     *
+     * @param handler 事件回调。⚠️ 它在【读取流的那个线程】上被调用，别在里面做重活
+     * @throws BizException 连不上 / 读超时（AI_SERVICE_TIMEOUT）、
+     *                      非 2xx（按 Python 的错误码翻译）、流中断（AI_SERVICE_ERROR）
+     */
+    public void chatStream(ChatRequest request, ChatStreamHandler handler) {
+        try {
+            restClient.post()
+                    .uri(PATH_CHAT_STREAM)
+                    .body(request)
+                    .exchange((req, res) -> {
+                        readSseStream(res, handler);
+                        return null;
+                    });
+
+        } catch (BizException e) {
+            throw e;
+
+        } catch (ResourceAccessException e) {
+            log.error("流式对话连接失败 path={}", PATH_CHAT_STREAM, e);
+            throw new BizException(ErrorCode.AI_SERVICE_TIMEOUT, "AI 服务暂时不可用，请稍后重试");
+
+        } catch (RestClientException e) {
+            // 流读到一半断了 / 响应读不出来。
+            // ⚠️ 走到这里时【前端可能已经看到部分回答】了，错误信息要说清这一点，
+            //    否则用户会把半截回答当成完整答案（同 Python 侧 LlmCallError 的处理）。
+            log.error("流式对话中断 path={}", PATH_CHAT_STREAM, e);
+            throw new BizException(ErrorCode.AI_SERVICE_ERROR, "AI 回答中断，已输出的内容可能不完整");
+
+        } catch (Exception e) {
+            log.error("流式对话出现未知错误 path={}", PATH_CHAT_STREAM, e);
+            throw new BizException(ErrorCode.AI_SERVICE_ERROR, "调用 AI 服务失败");
+        }
+    }
+
+    /**
+     * 读 SSE 流并逐条回调。
+     * <p>
+     * 只认 {@code data:} 开头的行：{@code event:} 行和空行都跳过
+     * （理由见 {@link #chatStream}）。
+     */
+    private void readSseStream(ClientHttpResponse res, ChatStreamHandler handler) throws IOException {
+        HttpStatusCode status = res.getStatusCode();
+        if (!status.is2xxSuccessful()) {
+            // ⚠️ 这里能正常读到状态码，是因为【流还没开始推】——
+            //    Python 侧一旦开始推事件，响应头就发出去了，状态码只能是 200，
+            //    所有运行时错误改走 error 事件。见 internal.py 里的三条约束。
+            String body = new String(res.getBody().readAllBytes(), StandardCharsets.UTF_8);
+            log.error("AI 服务返回异常状态 path={} status={} body={}",
+                    PATH_CHAT_STREAM, status, body);
+            throw translateErrorStatus(status, body);
+        }
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(res.getBody(), StandardCharsets.UTF_8))) {
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith(SSE_DATA_PREFIX)) {
+                    continue;
+                }
+                String payload = line.substring(SSE_DATA_PREFIX.length()).trim();
+                if (!payload.isEmpty()) {
+                    dispatchSseEvent(payload, handler);
+                }
+            }
+        }
+    }
+
+    /** 按 data 里的 {@code type} 分发。解析不了的事件跳过，不让整条流挂掉 */
+    private void dispatchSseEvent(String payload, ChatStreamHandler handler) {
+        JsonNode node;
+        try {
+            node = objectMapper.readTree(payload);
+        } catch (Exception e) {
+            log.warn("流式对话的事件不是合法 JSON，已跳过：{}", payload);
+            return;
+        }
+
+        String type = node.path("type").asText("");
+        switch (type) {
+            case "sources" -> handler.onSources(
+                    objectMapper.convertValue(node.path("sources"),
+                            new TypeReference<List<Source>>() {
+                            }),
+                    node.path("hasContext").asBoolean(false),
+                    node.path("contextTruncated").asBoolean(false));
+            case "delta" -> handler.onDelta(node.path("text").asText(""));
+            case "done" -> handler.onDone(
+                    node.path("answer").asText(null),
+                    node.path("hasAnswer").asBoolean(false));
+            case "error" -> handler.onError(
+                    node.path("code").asInt(ErrorCode.AI_SERVICE_ERROR.getCode()),
+                    node.path("message").asText("AI 服务出错"));
+            default -> log.debug("流式对话出现未知事件类型，已跳过：{}", type);
+        }
     }
 
     /**
@@ -242,20 +368,7 @@ public class AiServiceClient {
             String errorBody = e.getResponseBodyAsString();
             log.error("AI 服务返回异常状态 path={} status={} body={}",
                     path, e.getStatusCode(), errorBody);
-
-            // ★ Python 侧的错误码和本项目的 ErrorCode 是【同一套数值】
-            //   （见 Python 侧 app/main.py 的各 handler），所以先试着翻回枚举。
-            //   不这么做的话，「这个 PDF 是扫描件、读不出文字」(42201) 会退化成一个
-            //   笼统的 50201「AI 服务异常」—— 用户看到「服务异常」会以为重试就好，
-            //   而真正该说的是「换个能复制文字的 PDF」。排查方向也被带偏。
-            AiEnvelope<Object> envelope = parseEnvelope(errorBody);
-            if (envelope != null && envelope.code() != null && envelope.code() != 0) {
-                throw new BizException(
-                        ErrorCode.fromCode(envelope.code()).orElse(ErrorCode.AI_SERVICE_ERROR),
-                        envelope.message());
-            }
-            throw new BizException(ErrorCode.AI_SERVICE_ERROR,
-                    "AI 服务返回异常状态：" + e.getStatusCode());
+            throw translateErrorStatus(e.getStatusCode(), errorBody);
 
         } catch (RestClientException e) {
             // 走到这里说明【状态码是 2xx，但响应体读不出来】。
@@ -294,6 +407,55 @@ public class AiServiceClient {
             log.debug("AI 服务的异常响应不是约定的 JSON 信封，忽略：{}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 把「非 2xx + 响应体」翻译成业务异常。
+     * <p>
+     * ★ Python 侧的错误码和本项目的 {@link ErrorCode} 是<b>同一套数值</b>
+     * （见 Python 侧 {@code app/main.py} 的各 handler），所以先试着翻回枚举。
+     * 不这么做的话，「这个 PDF 是扫描件、读不出文字」(42201) 会退化成一个
+     * 笼统的 50201「AI 服务异常」—— 用户看到「服务异常」会以为重试就好，
+     * 而真正该说的是「换个能复制文字的 PDF」。排查方向也被带偏。
+     * <p>
+     * 两个调用点共用（{@link #post} 和 {@link #chatStream}），避免两边翻译得不一样。
+     */
+    private BizException translateErrorStatus(HttpStatusCode status, String body) {
+        AiEnvelope<Object> envelope = parseEnvelope(body);
+        if (envelope != null && envelope.code() != null && envelope.code() != 0) {
+            return new BizException(
+                    ErrorCode.fromCode(envelope.code()).orElse(ErrorCode.AI_SERVICE_ERROR),
+                    envelope.message());
+        }
+        return new BizException(ErrorCode.AI_SERVICE_ERROR,
+                "AI 服务返回异常状态：" + status);
+    }
+
+    /**
+     * 流式对话的事件回调。
+     * <p>
+     * 四个方法对应 Python 侧的四种事件，语义见 {@link #chatStream}。
+     * 抽成接口而不是返回一个 List —— 流是<b>边到边处理</b>的，
+     * 攒完再返回就失去了流式的意义。
+     */
+    public interface ChatStreamHandler {
+
+        /** 检索结果（流的第一个事件）。先推给前端，用户能立刻看到参考了哪几段 */
+        void onSources(List<Source> sources, boolean hasContext, boolean contextTruncated);
+
+        /** 一段增量文本，可能有几十上百个 */
+        void onDelta(String text);
+
+        /** 生成完成。{@code hasAnswer = false} 表示模型判定资料答不了（返回了兜底话术） */
+        void onDone(String answer, boolean hasAnswer);
+
+        /**
+         * 出错 —— <b>它代替 {@code onDone}，不会两个都来</b>。
+         * <p>
+         * ⚠️ 可能是「吐到一半才失败」，此时前面的 delta 已经推出去了，
+         * 调用方要让用户知道「已输出的部分可能不完整」。
+         */
+        void onError(int code, String message);
     }
 
     // ---------- 报文结构 ----------
