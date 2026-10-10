@@ -30,6 +30,9 @@ public class LoginAttemptServiceImpl implements LoginAttemptService {
     private static final String PREFIX_USER = "mf:login:fail:u:";
     private static final String PREFIX_IP = "mf:login:fail:ip:";
 
+    /** 用户名最大长度，对齐 {@code user.username varchar(32)} —— 也是 Redis key 长度的硬上限 */
+    private static final int MAX_USERNAME_LEN = 32;
+
     private final SecurityProperties properties;
     private final StringRedisTemplate redis;
 
@@ -167,10 +170,26 @@ public class LoginAttemptServiceImpl implements LoginAttemptService {
     }
 
     /**
-     * 用户名统一转小写 —— 否则攻击者用 {@code Admin} / {@code ADMIN} / {@code aDmin}
+     * 用户名归一化：转小写 + 截断到列宽。
+     * <p>
+     * <b>转小写</b>是因为否则攻击者用 {@code Admin} / {@code ADMIN} / {@code aDmin}
      * 轮着试，每次都被当成不同的 key，计数永远到不了阈值。
+     * <p>
+     * ⚠️ <b>截断是必须的</b>：这个值会被拼进 Redis key（{@code mf:login:fail:u:{用户名}}），
+     * 不截的话 key 长度只受请求体大小限制 —— 实测 2000 字符的用户名会造出
+     * 2016 字节的 key、TTL 15 分钟，换个用户名就换一个 key，等于一个内存放大面。
+     * <p>
+     * {@code LoginDTO} 上已经有 {@code @Size(max = 32)} 挡在入口，
+     * 这里是防「绕过校验直接调 service」的兜底（同 {@code ResumeServiceImpl} 里
+     * 「needsFact 为真时强制清空 rewritten」的写法）。
      */
     private String normalize(String username) {
-        return username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+        if (username == null) {
+            return "";
+        }
+        String lower = username.trim().toLowerCase(Locale.ROOT);
+        return lower.length() > MAX_USERNAME_LEN
+                ? lower.substring(0, MAX_USERNAME_LEN)
+                : lower;
     }
 }
