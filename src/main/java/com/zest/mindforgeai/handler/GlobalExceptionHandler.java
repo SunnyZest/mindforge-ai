@@ -10,6 +10,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
@@ -18,7 +20,6 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -45,18 +46,35 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 统一构造错误响应。
+     * <p>
+     * ⚠️ <b>必须显式带上 {@code Content-Type: application/json}</b>。错误响应永远是 JSON，
+     * 但内容协商看的是<b>请求的 {@code Accept} 头</b> —— 流式对话接口
+     * （{@code /app/conversations/{id}/messages/stream}）的前端按 SSE 约定会发
+     * {@code Accept: text/event-stream}，此时 Jackson 转换器「不可接受」，
+     * 写错误体时抛 {@code HttpMediaTypeNotAcceptableException}：客户端拿到的是
+     * <b>500</b> 而不是本该有的 404 / 400，日志里还多一条
+     * 「Failure in @ExceptionHandler」ERROR。
+     * <p>
+     * 提前把响应头的内容类型钉死成 JSON，{@code AbstractMessageConverterMethodProcessor}
+     * 就会走 {@code isContentTypePreset} 分支、<b>跳过内容协商</b>，正常写出 JSON。
+     */
+    private static ResponseEntity<Result<Void>> json(HttpStatus status, Result<Void> body) {
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(body);
+    }
+
+    /**
      * 业务异常。
      * <p>
      * 错误码前三位即 HTTP 状态码（40301 → 403、40901 → 409、40401 → 404），
-     * 据此设置响应状态，与 Security 层的 401 / 403 保持一致。
+     * 据此设置响应状态，与 Security 层的 401 / 403 保持一致；非法状态码兜底成 500。
      */
     @ExceptionHandler(BizException.class)
-    public Result<Void> handleBiz(BizException e, HttpServletResponse response) {
-        int status = e.getCode() / 100;
-        // 兜底：非法 HTTP 状态码按 500 处理
-        response.setStatus(status >= 100 && status <= 599 ? status : 500);
+    public ResponseEntity<Result<Void>> handleBiz(BizException e) {
+        HttpStatus status = HttpStatus.resolve(e.getCode() / 100);
         log.warn("业务异常 code={} message={}", e.getCode(), e.getMessage());
-        return Result.fail(e.getCode(), e.getMessage());
+        return json(status != null ? status : HttpStatus.INTERNAL_SERVER_ERROR,
+                Result.fail(e.getCode(), e.getMessage()));
     }
 
     /**
@@ -70,10 +88,9 @@ public class GlobalExceptionHandler {
      * 各 Service 保留业务级检查是为了给出更友好的提示，这里是兜底。
      */
     @ExceptionHandler(DuplicateKeyException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public Result<Void> handleDuplicateKey(DuplicateKeyException e) {
+    public ResponseEntity<Result<Void>> handleDuplicateKey(DuplicateKeyException e) {
         log.warn("唯一约束冲突：{}", e.getMessage());
-        return Result.fail(ErrorCode.STATUS_CONFLICT, "数据已存在，请检查是否有重复");
+        return json(HttpStatus.CONFLICT, Result.fail(ErrorCode.STATUS_CONFLICT, "数据已存在，请检查是否有重复"));
     }
 
     /**
@@ -83,18 +100,16 @@ public class GlobalExceptionHandler {
      * 用响应里的 traceId 关联（审计记录的 request_id 就是它）。
      */
     @ExceptionHandler(BadCredentialsException.class)
-    @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public Result<Void> handleBadCredentials(BadCredentialsException e) {
+    public ResponseEntity<Result<Void>> handleBadCredentials(BadCredentialsException e) {
         log.warn("登录失败：用户名或密码错误");
-        return Result.fail(ErrorCode.UNAUTHORIZED, "用户名或密码错误");
+        return json(HttpStatus.UNAUTHORIZED, Result.fail(ErrorCode.UNAUTHORIZED, "用户名或密码错误"));
     }
 
     /** 账号被禁用 → 40301 */
     @ExceptionHandler(DisabledException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    public Result<Void> handleDisabled(DisabledException e) {
+    public ResponseEntity<Result<Void>> handleDisabled(DisabledException e) {
         log.warn("登录失败：账号已被禁用");
-        return Result.fail(ErrorCode.ACCOUNT_DISABLED);
+        return json(HttpStatus.FORBIDDEN, Result.fail(ErrorCode.ACCOUNT_DISABLED));
     }
 
     /**
@@ -104,8 +119,7 @@ public class GlobalExceptionHandler {
      * 由 {@code JwtAccessDeniedHandler} 处理；两处都记审计。
      */
     @ExceptionHandler(AccessDeniedException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    public Result<Void> handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {
+    public ResponseEntity<Result<Void>> handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {
         String method = request.getMethod();
         String uri = request.getRequestURI();
 
@@ -114,17 +128,16 @@ public class GlobalExceptionHandler {
                 AuditConstants.RESOURCE_API, uri,
                 Map.of("method", method, "reason", "方法级权限不足"));
 
-        return Result.fail(ErrorCode.FORBIDDEN);
+        return json(HttpStatus.FORBIDDEN, Result.fail(ErrorCode.FORBIDDEN));
     }
 
     /** 参数校验失败 → 40001 */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Result<Void> handleValid(MethodArgumentNotValidException e) {
+    public ResponseEntity<Result<Void>> handleValid(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getFieldError() == null
                 ? ErrorCode.PARAM_INVALID.getMessage()
                 : e.getBindingResult().getFieldError().getDefaultMessage();
-        return Result.fail(ErrorCode.PARAM_INVALID, message);
+        return json(HttpStatus.BAD_REQUEST, Result.fail(ErrorCode.PARAM_INVALID, message));
     }
 
     /**
@@ -134,9 +147,8 @@ public class GlobalExceptionHandler {
      * 若不单独处理会被下面的兜底抓成 500，让前端误判为服务端故障。
      */
     @ExceptionHandler(NoResourceFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Result<Void> handleNoResource(NoResourceFoundException e) {
-        return Result.fail(ErrorCode.RESOURCE_NOT_FOUND);
+    public ResponseEntity<Result<Void>> handleNoResource(NoResourceFoundException e) {
+        return json(HttpStatus.NOT_FOUND, Result.fail(ErrorCode.RESOURCE_NOT_FOUND));
     }
 
     /**
@@ -147,12 +159,11 @@ public class GlobalExceptionHandler {
      * <b>不加这个 handler 会被兜底成 500</b>，前端会以为是服务端故障。
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
-    public Result<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException e,
-                                                 HttpServletRequest request) {
+    public ResponseEntity<Result<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException e,
+                                                                 HttpServletRequest request) {
         log.warn("请求方法不支持：{} {}，该路径支持 {}",
                 request.getMethod(), request.getRequestURI(), e.getSupportedHttpMethods());
-        return Result.fail(ErrorCode.METHOD_NOT_ALLOWED);
+        return json(HttpStatus.METHOD_NOT_ALLOWED, Result.fail(ErrorCode.METHOD_NOT_ALLOWED));
     }
 
     /**
@@ -162,40 +173,38 @@ public class GlobalExceptionHandler {
      * 不加这个 handler 会被兜底成 500 —— 而用户看到的应该是一个明确的「文件过大」。
      */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
-    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
-    public Result<Void> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+    public ResponseEntity<Result<Void>> handleMaxUploadSize(MaxUploadSizeExceededException e) {
         log.warn("上传文件超过大小上限：{}", e.getMessage());
-        return Result.fail(ErrorCode.FILE_TOO_LARGE);
+        return json(HttpStatus.PAYLOAD_TOO_LARGE, Result.fail(ErrorCode.FILE_TOO_LARGE));
     }
 
     /**
      * multipart 请求缺少必需的 part（比如上传接口没带 {@code file} 字段）→ 400。
      */
     @ExceptionHandler(MissingServletRequestPartException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Result<Void> handleMissingPart(MissingServletRequestPartException e) {
-        return Result.fail(ErrorCode.PARAM_INVALID, "缺少必要的上传字段：" + e.getRequestPartName());
+    public ResponseEntity<Result<Void>> handleMissingPart(MissingServletRequestPartException e) {
+        return json(HttpStatus.BAD_REQUEST,
+                Result.fail(ErrorCode.PARAM_INVALID, "缺少必要的上传字段：" + e.getRequestPartName()));
     }
 
     /** 请求体格式错误 / JSON 解析失败 → 40002 */
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Result<Void> handleNotReadable(HttpMessageNotReadableException e) {
-        return Result.fail(ErrorCode.REQUEST_MALFORMED);
+    public ResponseEntity<Result<Void>> handleNotReadable(HttpMessageNotReadableException e) {
+        return json(HttpStatus.BAD_REQUEST, Result.fail(ErrorCode.REQUEST_MALFORMED));
     }
 
     /** 路径变量 / 查询参数类型不匹配 → 40001 */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Result<Void> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
-        return Result.fail(ErrorCode.PARAM_INVALID, "参数 " + e.getName() + " 类型不正确");
+    public ResponseEntity<Result<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return json(HttpStatus.BAD_REQUEST,
+                Result.fail(ErrorCode.PARAM_INVALID, "参数 " + e.getName() + " 类型不正确"));
     }
 
     /** 缺少必需的查询参数 → 40001 */
     @ExceptionHandler(MissingServletRequestParameterException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Result<Void> handleMissingParam(MissingServletRequestParameterException e) {
-        return Result.fail(ErrorCode.PARAM_INVALID, "缺少必要参数：" + e.getParameterName());
+    public ResponseEntity<Result<Void>> handleMissingParam(MissingServletRequestParameterException e) {
+        return json(HttpStatus.BAD_REQUEST,
+                Result.fail(ErrorCode.PARAM_INVALID, "缺少必要参数：" + e.getParameterName()));
     }
 
     /**
@@ -223,11 +232,29 @@ public class GlobalExceptionHandler {
                 request.getMethod(), request.getServletPath());
     }
 
-    /** 兜底 */
+    /**
+     * 兜底。
+     * <p>
+     * ⚠️ <b>响应一旦提交（committed），就绝不能再写响应体</b>。SSE / 流式接口开始推送后响应即已提交，
+     * 此时客户端断开，容器会把底层的<b>裸 {@code IOException}</b>（"你的主机中的软件中止了一个已建立的连接"）
+     * 直接抛到 MVC —— 它<b>不是</b> {@link #handleClientDisconnect} 认的
+     * {@code AsyncRequestNotUsableException}（两者是兄弟，都继承 {@code IOException}），
+     * 所以会落到这里。若仍按常规返回 {@code Result}，消息转换器找不到能写
+     * {@code text/event-stream} 的转换器，会再抛一次 {@code HttpMessageNotWritableException} ——
+     * 日志里就多一条唬人的 ERROR（其实业务早已正常完成、回答也已落库）。
+     * <p>
+     * 所以先看 {@code response.isCommitted()}：已提交就只记 DEBUG、返回 {@code null}
+     * —— {@code HttpEntityMethodProcessor} 遇到 null 会直接跳过、不写 body。
+     */
     @ExceptionHandler(Exception.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public Result<Void> handleOther(Exception e) {
+    public ResponseEntity<Result<Void>> handleOther(Exception e, HttpServletRequest request,
+                                                    HttpServletResponse response) {
+        if (response.isCommitted()) {
+            log.debug("响应已提交，跳过异常响应体（客户端多半已断开）：{} {}",
+                    request.getMethod(), request.getServletPath(), e);
+            return null;
+        }
         log.error("未处理异常", e);
-        return Result.fail(ErrorCode.SYSTEM_ERROR);
+        return json(HttpStatus.INTERNAL_SERVER_ERROR, Result.fail(ErrorCode.SYSTEM_ERROR));
     }
 }
