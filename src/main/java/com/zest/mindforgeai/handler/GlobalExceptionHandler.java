@@ -20,6 +20,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -195,6 +196,31 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> handleMissingParam(MissingServletRequestParameterException e) {
         return Result.fail(ErrorCode.PARAM_INVALID, "缺少必要参数：" + e.getParameterName());
+    }
+
+    /**
+     * 客户端在响应写完之前断开了连接 —— <b>这不是服务端的错误</b>，只记 DEBUG。
+     * <p>
+     * 典型场景：调用方等不及先放弃了（curl 的 {@code --max-time} 到了、前端 axios 超时、
+     * 用户直接关掉页面）。此时服务端其实还在正常处理、甚至已经算完了，
+     * 只是往一个已经死掉的连接写响应，{@code ServletOutputStream} 抛 IOException，
+     * Spring 把它包成这个异常。
+     * <p>
+     * ⚠️ <b>刻意返回 {@code void}</b>：连接已经没了，再往响应里写 JSON 只会再抛一次。
+     * <p>
+     * ⚠️ 不加这个 handler 的话，它会被下面的兜底抓成「未处理异常」+ 完整堆栈打 ERROR。
+     * 实测（2026-10-10）：调 AI 优化接口时 curl 提前 20 秒放弃，Java 在两分钟后算完、
+     * 往死连接写 —— 于是日志里多了一条看着像故障的「未处理异常」。
+     * 这类噪音一天能刷出几十条，真正的问题反而被淹没。
+     * <p>
+     * 顺带说明：这正好是「<b>客户端超时必须大于服务端耗时</b>」那条坑的现场证据 ——
+     * 出现这个异常，通常说明调用方的超时配短了。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleClientDisconnect(AsyncRequestNotUsableException e,
+                                       HttpServletRequest request) {
+        log.debug("客户端提前断开了连接（响应未写完）：{} {}",
+                request.getMethod(), request.getServletPath());
     }
 
     /** 兜底 */
