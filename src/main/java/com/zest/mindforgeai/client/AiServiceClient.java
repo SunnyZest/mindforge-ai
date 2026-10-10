@@ -50,6 +50,7 @@ public class AiServiceClient {
     private static final String PATH_SEARCH = "/internal/ai/v1/rag/search";
     private static final String PATH_RESUME_PARSE = "/internal/ai/v1/resumes/parse";
     private static final String PATH_RESUME_ANALYZE = "/internal/ai/v1/resumes/analyze";
+    private static final String PATH_RESUME_MATCH = "/internal/ai/v1/resumes/match";
     private static final String PATH_JOB_PARSE = "/internal/ai/v1/jobs/parse";
     private static final String PATH_INTERVIEW_GENERATE = "/internal/ai/v1/interviews/generate";
     private static final String PATH_INTERVIEW_ANALYZE = "/internal/ai/v1/interviews/analyze";
@@ -267,6 +268,28 @@ public class AiServiceClient {
      */
     public ResumeAnalyzeData analyzeResume(ResumeAnalyzeRequest request) {
         AiEnvelope<ResumeAnalyzeData> envelope = post(PATH_RESUME_ANALYZE, request,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
+    /**
+     * 简历与职位匹配分析。
+     * <p>
+     * ★ 结果的核心是 {@code items}：<b>逐条要求落到五类结论之一</b>
+     * （已匹配 / 表达缺口 / 证据不足 / 真实缺口 / 待确认），
+     * 每一类都直接指向一个动作。{@code overallScore} 只是展示辅助，
+     * 不参与任何准入判断 —— 「73%」说了等于没说。
+     * <p>
+     * ★ 和 {@link #analyzeResume} 的区别：那个是「这份简历自己怎么写得更好」
+     * （不需要参照物），这个是「对【这个岗位】够不够」（必须有 JD 才成立）。
+     * <p>
+     * ⚠️ 慢接口（实测 100~200 秒），读超时按最慢的接口配。
+     *
+     * @throws BizException AI_SERVICE_ERROR / AI_SERVICE_TIMEOUT
+     */
+    public ResumeMatchData matchResume(ResumeMatchRequest request) {
+        AiEnvelope<ResumeMatchData> envelope = post(PATH_RESUME_MATCH, request,
                 new ParameterizedTypeReference<>() {
                 });
         return envelope.data();
@@ -616,8 +639,56 @@ public class AiServiceClient {
         }
     }
 
-    // ---------- AI 面试 ----------
+    // ---------- 简历-JD 匹配 ----------
 
+    /**
+     * 匹配请求。
+     * <p>
+     * ⚠️ 传的是<b>两段文本</b>（简历原文 + JD 原文）—— 本服务不连数据库，
+     * Java 把已经存好的 {@code resume.raw_content} / {@code job.raw_content} 带过来。
+     */
+    public record ResumeMatchRequest(String userId,
+                                     String resumeId,
+                                     String jobId,
+                                     String resumeText,
+                                     String jobText) {
+    }
+
+    /**
+     * 匹配结果。
+     * <p>
+     * 字段名对齐 Python 侧 {@code match._normalize}。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ResumeMatchData(Double overallScore,
+                                  String summary,
+                                  List<MatchItem> items,
+                                  List<String> matchedSkills,
+                                  List<String> missingSkills,
+                                  List<String> matchedExperience,
+                                  List<String> missingExperience,
+                                  List<String> suggestions,
+                                  Boolean truncated) {
+
+        /**
+         * 逐条要求的匹配结论。
+         * <p>
+         * ★ {@code verdict} 是五类之一，见 {@code ResumeMatchVO.MatchItemVO} 的说明。
+         * <p>
+         * ⚠️ Python 侧保证了一条不变量：<b>{@code verdict = MATCHED} 时
+         * {@code evidence} 一定非空</b>（没有依据就不许说「已匹配」，
+         * 会被降级成 UNCERTAIN）。Java 这边如实透传即可。
+         */
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record MatchItem(String category,
+                                String requirement,
+                                String verdict,
+                                String evidence,
+                                String advice) {
+        }
+    }
+
+    // ---------- AI 面试 ----------
     public record InterviewGenerateRequest(String userId,
                                            String interviewId,
                                            String interviewType,

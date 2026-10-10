@@ -49,6 +49,7 @@ public enum ErrorCode {
     INTERVIEW_NOT_FOUND(40410, "面试不存在"),
     INTERVIEW_QUESTION_NOT_FOUND(40411, "面试题不存在"),
     INTERVIEW_REPORT_NOT_FOUND(40412, "面试报告尚未生成"),
+    RESUME_JOB_ANALYSIS_NOT_FOUND(40413, "还没有做过这份简历与这个职位的匹配分析"),
 
     METHOD_NOT_ALLOWED(40501, "请求方法不支持"),
 

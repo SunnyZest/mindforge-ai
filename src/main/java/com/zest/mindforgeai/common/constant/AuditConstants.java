@@ -142,6 +142,15 @@ public final class AuditConstants {
     /** 结束面试并生成复盘报告 */
     public static final String ACTION_INTERVIEW_FINISH = "INTERVIEW_FINISH";
 
+    /**
+     * 触发简历-JD 匹配分析。
+     * <p>
+     * 理由同 {@link #ACTION_RESUME_PARSE} —— 消耗 token 的调用都要留痕。
+     * 它<b>会写业务数据</b>（落 {@code resume_job_analysis}），但重跑是覆盖，
+     * 所以留痕主要是为了回答「这个月的 AI 调用是谁点的」。
+     */
+    public static final String ACTION_RESUME_MATCH = "RESUME_MATCH";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
@@ -158,4 +167,5 @@ public final class AuditConstants {
     public static final String RESOURCE_RESUME = "RESUME";
     public static final String RESOURCE_JOB = "JOB";
     public static final String RESOURCE_INTERVIEW = "INTERVIEW";
+    public static final String RESOURCE_RESUME_JOB_ANALYSIS = "RESUME_JOB_ANALYSIS";
 }
