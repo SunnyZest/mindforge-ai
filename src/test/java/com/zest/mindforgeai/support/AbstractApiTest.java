@@ -83,7 +83,9 @@ public abstract class AbstractApiTest {
             "interview_question", "interview_report", "interview",
             "resume_skill", "resume_job_analysis", "resume",
             "job_skill", "job",
-            "sys_file", "sys_audit_log", "sys_refresh_token", "ai_usage_record"
+            "sys_file", "sys_audit_log", "sys_refresh_token", "ai_usage_record",
+            // sys_ai_model 没有 deleted 列，只能物理删
+            "sys_ai_model"
     );
 
     @Autowired
