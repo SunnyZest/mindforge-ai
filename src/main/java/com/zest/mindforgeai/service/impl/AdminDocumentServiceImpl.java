@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.StorageProperties;
@@ -60,6 +61,15 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
             Set.of(DocumentStatusUtils.PENDING, "EMBEDDING",
                     DocumentStatusUtils.SUCCESS, DocumentStatusUtils.FAILED);
 
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。
+     *  值是【数据库列名】—— 这几个走自定义 XML 分页，排序由 MP 拼进 SQL。 */
+    private static final Map<String, String> SORTABLE = Map.of(
+            "fileName", "d.file_name",
+            "fileSize", "d.file_size",
+            "createdAt", "d.created_at",
+            "updatedAt", "d.updated_at");
+
     private final DocumentMapper documentMapper;
     private final FileService fileService;
     private final AuditService auditService;
@@ -77,12 +87,17 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
 
     @Override
     public PageResultVO<AdminDocumentVO> pageDocuments(long page, long pageSize, String keyword,
-                                                       Long knowledgeBaseId, Long userId, String status) {
+                                                       Long knowledgeBaseId, Long userId, String status,
+                                                       String sortBy, String sortOrder) {
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
+        Page<AdminDocumentVO> pageParam = new Page<>(safePage, safeSize);
+        // ⚠️ XML 里不能自己写 ORDER BY —— MP 会追加在后面，导致它不生效
+        SortSupport.applyTo(pageParam, sortBy, sortOrder, SORTABLE, "d.id", false);
+
         IPage<AdminDocumentVO> result = documentMapper.selectAdminPage(
-                new Page<>(safePage, safeSize), knowledgeBaseId, userId, keyword, status);
+                pageParam, knowledgeBaseId, userId, keyword, status);
 
         // 聚合状态不在 SQL 里算（见 DocumentMapper.xml 的说明），映射完在这里补
         result.getRecords().forEach(this::fillAggregateStatus);

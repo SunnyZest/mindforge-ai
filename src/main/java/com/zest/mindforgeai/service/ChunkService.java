@@ -31,5 +31,6 @@ public interface ChunkService {
      * 管理端不校验归属（管理员本来就能看所有人的文档），
      * 但要确认文档存在，否则「文档 id 打错」会静默返回空列表。
      */
-    PageResultVO<ChunkVO> pageByDocument(Long documentId, int page, int pageSize);
+    PageResultVO<ChunkVO> pageByDocument(Long documentId, int page, int pageSize,
+                                         String sortBy, String sortOrder);
 }

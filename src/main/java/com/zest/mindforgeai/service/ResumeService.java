@@ -23,7 +23,8 @@ import org.springframework.web.multipart.MultipartFile;
 public interface ResumeService {
 
     /** 分页列表（关键词匹配简历名称 / 目标职位） */
-    PageResultVO<ResumeVO> pageResumes(long page, long pageSize, String keyword);
+    PageResultVO<ResumeVO> pageResumes(long page, long pageSize, String keyword,
+                                       String sortBy, String sortOrder);
 
     /** 详情（含解析全文与结构化数据） */
     ResumeDetailVO getDetail(Long id);

@@ -28,7 +28,8 @@ public interface DocumentService extends IService<Document> {
     DocumentVO upload(Long knowledgeBaseId, MultipartFile file, String description);
 
     /** 某个知识库下的文档分页列表（校验知识库归属） */
-    PageResultVO<DocumentVO> pageDocuments(Long knowledgeBaseId, long page, long pageSize, String keyword);
+    PageResultVO<DocumentVO> pageDocuments(Long knowledgeBaseId, long page, long pageSize, String keyword,
+                                           String sortBy, String sortOrder);
 
     /** 文档详情（校验归属） */
     DocumentVO getDetail(Long documentId);

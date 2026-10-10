@@ -27,7 +27,8 @@ public interface AdminUserService {
      * @param roleCode 角色 code 筛选，可空
      */
     PageResultVO<UserSummaryVO> pageUsers(long page, long pageSize,
-                                          String keyword, Integer status, String roleCode);
+                                          String keyword, Integer status, String roleCode,
+                                          String sortBy, String sortOrder);
 
     /** 用户详情（含角色与权限） */
     UserInfoVO getUserDetail(Long userId);

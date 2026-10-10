@@ -68,5 +68,6 @@ public interface AuditService extends IService<SysAuditLog> {
      */
     PageResultVO<AuditLogVO> pageLogs(long page, long pageSize,
                                       Long userId, String action, String resourceType,
-                                      String result, LocalDateTime from, LocalDateTime to);
+                                      String result, LocalDateTime from, LocalDateTime to,
+                                      String sortBy, String sortOrder);
 }

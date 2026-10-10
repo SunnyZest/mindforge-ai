@@ -42,7 +42,8 @@ public interface InterviewService {
     InterviewVO create(InterviewCreateDTO dto);
 
     /** 分页列表（关键词匹配标题；status 可选过滤） */
-    PageResultVO<InterviewVO> pageInterviews(long page, long pageSize, String keyword, String status);
+    PageResultVO<InterviewVO> pageInterviews(long page, long pageSize, String keyword, String status,
+                                             String sortBy, String sortOrder);
 
     /** 详情（含题目列表）。⚠️ 参考答案要点只在面试结束后返回 */
     InterviewDetailVO getDetail(Long id);

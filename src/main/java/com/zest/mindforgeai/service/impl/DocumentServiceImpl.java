@@ -1,10 +1,13 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.exception.BizException;
@@ -44,6 +47,14 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
     /** 单页上限，防止前端传个超大 pageSize 拖垮数据库 */
     private static final long MAX_PAGE_SIZE = 100;
+
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。 */
+    private static final Map<String, SFunction<Document, ?>> SORTABLE = Map.of(
+            "fileName", Document::getFileName,
+            "fileSize", Document::getFileSize,
+            "createdAt", Document::getCreatedAt,
+            "updatedAt", Document::getUpdatedAt);
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final FileService fileService;
@@ -117,7 +128,8 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
     @Override
     public PageResultVO<DocumentVO> pageDocuments(Long knowledgeBaseId, long page, long pageSize,
-                                                  String keyword) {
+                                                  String keyword,
+                                                  String sortBy, String sortOrder) {
         // 先校验知识库归属 —— 不是你的库，就看不到里面的文档
         knowledgeBaseService.getOwned(knowledgeBaseId);
 
@@ -126,8 +138,9 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
         LambdaQueryWrapper<Document> wrapper = new LambdaQueryWrapper<Document>()
                 .eq(Document::getKnowledgeBaseId, knowledgeBaseId)
-                .like(StringUtils.hasText(keyword), Document::getFileName, keyword)
-                .orderByDesc(Document::getId);
+                .like(StringUtils.hasText(keyword), Document::getFileName, keyword);
+
+        SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, Document::getId, false);
 
         Page<Document> result = page(new Page<>(safePage, safeSize), wrapper);
 

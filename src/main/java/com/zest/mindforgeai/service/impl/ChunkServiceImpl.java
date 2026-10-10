@@ -1,8 +1,11 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.DocumentChunkMapper;
@@ -16,6 +19,7 @@ import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -30,6 +34,12 @@ public class ChunkServiceImpl implements ChunkService {
 
     /** 管理端分页大小上限 —— 分块正文可能很长，不限制会把响应撑爆 */
     private static final int MAX_PAGE_SIZE = 100;
+
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。 */
+    private static final Map<String, SFunction<DocumentChunk, ?>> SORTABLE = Map.of(
+            "chunkIndex", DocumentChunk::getChunkIndex,
+            "tokenCount", DocumentChunk::getTokenCount);
 
     private final DocumentChunkMapper chunkMapper;
     private final DocumentMapper documentMapper;
@@ -73,7 +83,8 @@ public class ChunkServiceImpl implements ChunkService {
     }
 
     @Override
-    public PageResultVO<ChunkVO> pageByDocument(Long documentId, int page, int pageSize) {
+    public PageResultVO<ChunkVO> pageByDocument(Long documentId, int page, int pageSize,
+                                                String sortBy, String sortOrder) {
         // 管理端不校验归属（管理员本来就能看所有人的文档），
         // 但要确认文档存在 —— 否则「文档 id 打错」会静默返回空列表，排查起来很费劲
         Document doc = documentMapper.selectById(documentId);
@@ -84,11 +95,14 @@ public class ChunkServiceImpl implements ChunkService {
         int safePage = Math.max(1, page);
         int safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
+        LambdaQueryWrapper<DocumentChunk> wrapper = new LambdaQueryWrapper<DocumentChunk>()
+                .eq(DocumentChunk::getDocumentId, documentId);
+        // 分块默认按 chunkIndex 升序 —— 它天然有顺序，倒着看没有意义
+        SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE,
+                DocumentChunk::getChunkIndex, true);
+
         IPage<DocumentChunk> result = chunkMapper.selectPage(
-                new Page<>(safePage, safeSize),
-                Wrappers.<DocumentChunk>lambdaQuery()
-                        .eq(DocumentChunk::getDocumentId, documentId)
-                        .orderByAsc(DocumentChunk::getChunkIndex));
+                new Page<>(safePage, safeSize), wrapper);
 
         // 所有分块都属于同一个文档，doc 复用一次就行，不用每条都查
         return PageResultVO.of(result,

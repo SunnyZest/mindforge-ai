@@ -1,11 +1,13 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.context.TraceIdHolder;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.mapper.AuditLogMapper;
 import com.zest.mindforgeai.pojo.entity.SysAuditLog;
 import com.zest.mindforgeai.pojo.vo.AuditLogVO;
@@ -24,6 +26,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 审计日志服务实现
@@ -43,6 +46,14 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
 
     /** 单页上限，防止前端传个超大 pageSize 拖垮数据库 */
     private static final long MAX_PAGE_SIZE = 100;
+
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。 */
+    private static final Map<String, SFunction<SysAuditLog, ?>> SORTABLE = Map.of(
+            "action", SysAuditLog::getAction,
+            "resourceType", SysAuditLog::getResourceType,
+            "result", SysAuditLog::getResult,
+            "createdAt", SysAuditLog::getCreatedAt);
 
     private final ObjectMapper objectMapper;
 
@@ -121,7 +132,8 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
     @Override
     public PageResultVO<AuditLogVO> pageLogs(long page, long pageSize,
                                              Long userId, String action, String resourceType,
-                                             String result, LocalDateTime from, LocalDateTime to) {
+                                             String result, LocalDateTime from, LocalDateTime to,
+                                             String sortBy, String sortOrder) {
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
@@ -131,9 +143,10 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
                 .eq(StringUtils.hasText(resourceType), SysAuditLog::getResourceType, resourceType)
                 .eq(StringUtils.hasText(result), SysAuditLog::getResult, result)
                 .ge(from != null, SysAuditLog::getCreatedAt, from)
-                .le(to != null, SysAuditLog::getCreatedAt, to)
-                // 按 id 倒序而不是 createdAt：同一秒内多条时 id 才能保证稳定顺序
-                .orderByDesc(SysAuditLog::getId);
+                .le(to != null, SysAuditLog::getCreatedAt, to);
+
+        // 兜底按 id 倒序而不是 createdAt：同一秒内多条时 id 才能保证稳定顺序
+        SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, SysAuditLog::getId, false);
 
         Page<SysAuditLog> pageResult = page(new Page<>(safePage, safeSize), wrapper);
 

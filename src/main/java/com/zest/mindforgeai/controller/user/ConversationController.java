@@ -85,8 +85,10 @@ public class ConversationController {
     @PreAuthorize("hasAuthority('app:conversation:read')")
     public Result<PageResultVO<ConversationVO>> page(
             @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "20") long pageSize) {
-        return Result.success(conversationService.page(page, pageSize));
+            @RequestParam(defaultValue = "20") long pageSize,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
+        return Result.success(conversationService.page(page, pageSize, sortBy, sortOrder));
     }
 
     @Operation(summary = "会话详情（含消息列表）")

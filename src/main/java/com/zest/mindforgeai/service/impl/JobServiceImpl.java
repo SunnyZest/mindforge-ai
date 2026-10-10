@@ -1,6 +1,8 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -10,6 +12,7 @@ import com.zest.mindforgeai.client.AiServiceClient;
 import com.zest.mindforgeai.client.AiServiceClient.JobParseData;
 import com.zest.mindforgeai.client.AiServiceClient.JobParseRequest;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.JobMapper;
@@ -58,6 +61,14 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     /** 与 job.error_message varchar(500) 对齐 */
     private static final int MAX_ERROR_LEN = 500;
 
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。 */
+    private static final Map<String, SFunction<Job, ?>> SORTABLE = Map.of(
+            "title", Job::getTitle,
+            "companyName", Job::getCompanyName,
+            "createdAt", Job::getCreatedAt,
+            "updatedAt", Job::getUpdatedAt);
+
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
     private final AiServiceClient aiServiceClient;
@@ -80,7 +91,8 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     }
 
     @Override
-    public PageResultVO<JobVO> pageJobs(long page, long pageSize, String keyword) {
+    public PageResultVO<JobVO> pageJobs(long page, long pageSize, String keyword,
+                                       String sortBy, String sortOrder) {
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
@@ -89,8 +101,9 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
                 // 关键词：职位名称 / 公司名称 任一匹配
                 .and(StringUtils.hasText(keyword), w -> w
                         .like(Job::getTitle, keyword).or()
-                        .like(Job::getCompanyName, keyword))
-                .orderByDesc(Job::getId);
+                        .like(Job::getCompanyName, keyword));
+
+        SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, Job::getId, false);
 
         Page<Job> result = page(new Page<>(safePage, safeSize), wrapper);
         return PageResultVO.of(result, result.getRecords().stream().map(JobVO::of).toList());

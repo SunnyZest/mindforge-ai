@@ -54,10 +54,12 @@ public class AdminDocumentController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long knowledgeBaseId,
             @RequestParam(required = false) Long userId,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
 
         return Result.success(adminDocumentService.pageDocuments(
-                page, pageSize, keyword, knowledgeBaseId, userId, status));
+                page, pageSize, keyword, knowledgeBaseId, userId, status, sortBy, sortOrder));
     }
 
     @Operation(summary = "文档详情")
@@ -114,7 +116,9 @@ public class AdminDocumentController {
     public Result<PageResultVO<ChunkVO>> pageChunks(
             @PathVariable Long id,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int pageSize) {
-        return Result.success(chunkService.pageByDocument(id, page, pageSize));
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
+        return Result.success(chunkService.pageByDocument(id, page, pageSize, sortBy, sortOrder));
     }
 }

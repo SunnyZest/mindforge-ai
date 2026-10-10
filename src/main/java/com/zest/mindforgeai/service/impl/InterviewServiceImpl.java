@@ -1,6 +1,8 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -15,6 +17,7 @@ import com.zest.mindforgeai.client.AiServiceClient.InterviewGenerateRequest;
 import com.zest.mindforgeai.client.AiServiceClient.InterviewReportData;
 import com.zest.mindforgeai.client.AiServiceClient.InterviewReportRequest;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.InterviewMapper;
@@ -83,6 +86,14 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
 
     /** 与 interview.title varchar(255) 对齐 */
     private static final int MAX_TITLE_LEN = 255;
+
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。 */
+    private static final Map<String, SFunction<Interview, ?>> SORTABLE = Map.of(
+            "title", Interview::getTitle,
+            "status", Interview::getStatus,
+            "createdAt", Interview::getCreatedAt,
+            "finishedAt", Interview::getFinishedAt);
 
     private final InterviewQuestionMapper questionMapper;
     private final InterviewReportMapper reportMapper;
@@ -170,15 +181,17 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
 
     @Override
     public PageResultVO<InterviewVO> pageInterviews(long page, long pageSize,
-                                                    String keyword, String status) {
+                                                    String keyword, String status,
+                                                    String sortBy, String sortOrder) {
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
         LambdaQueryWrapper<Interview> wrapper = new LambdaQueryWrapper<Interview>()
                 .eq(Interview::getUserId, SecurityUtils.getUserId())
                 .like(StringUtils.hasText(keyword), Interview::getTitle, keyword)
-                .eq(StringUtils.hasText(status), Interview::getStatus, normalizeStatus(status))
-                .orderByDesc(Interview::getId);
+                .eq(StringUtils.hasText(status), Interview::getStatus, normalizeStatus(status));
+
+        SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, Interview::getId, false);
 
         Page<Interview> result = page(new Page<>(safePage, safeSize), wrapper);
 

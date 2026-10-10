@@ -61,9 +61,12 @@ public class InterviewController {
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
 
-        return Result.success(interviewService.pageInterviews(page, pageSize, keyword, status));
+        return Result.success(interviewService.pageInterviews(
+                page, pageSize, keyword, status, sortBy, sortOrder));
     }
 
     /**

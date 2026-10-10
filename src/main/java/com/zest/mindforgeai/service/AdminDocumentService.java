@@ -24,7 +24,8 @@ public interface AdminDocumentService {
      * @param status          原始状态，匹配任一处理阶段（parse / chunk / vector），可空
      */
     PageResultVO<AdminDocumentVO> pageDocuments(long page, long pageSize, String keyword,
-                                                Long knowledgeBaseId, Long userId, String status);
+                                                Long knowledgeBaseId, Long userId, String status,
+                                                String sortBy, String sortOrder);
 
     /** 文档详情（含归属人与所属知识库名） */
     AdminDocumentVO getDetail(Long id);

@@ -1,9 +1,12 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.RoleMapper;
@@ -51,6 +54,14 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
     /** 用户状态：1 启用 / 0 禁用 */
     private static final int STATUS_ENABLED = 1;
 
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。 */
+    private static final Map<String, SFunction<User, ?>> SORTABLE = Map.of(
+            "username", User::getUsername,
+            "status", User::getStatus,
+            "createdAt", User::getCreatedAt,
+            "lastLoginAt", User::getLastLoginAt);
+
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
     private final UserService userService;
@@ -74,7 +85,8 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
 
     @Override
     public PageResultVO<UserSummaryVO> pageUsers(long page, long pageSize,
-                                                 String keyword, Integer status, String roleCode) {
+                                                 String keyword, Integer status, String roleCode,
+                                                 String sortBy, String sortOrder) {
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
@@ -106,8 +118,9 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
                 .and(StringUtils.hasText(keyword), w -> w
                         .like(User::getUsername, keyword).or()
                         .like(User::getNickname, keyword).or()
-                        .like(User::getEmail, keyword))
-                .orderByDesc(User::getId);
+                        .like(User::getEmail, keyword));
+
+        SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, User::getId, false);
 
         Page<User> result = page(new Page<>(safePage, safeSize), wrapper);
 

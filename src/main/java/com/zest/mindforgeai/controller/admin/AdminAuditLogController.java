@@ -50,9 +50,11 @@ public class AdminAuditLogController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
 
         return Result.success(auditService.pageLogs(
-                page, pageSize, userId, action, resourceType, result, from, to));
+                page, pageSize, userId, action, resourceType, result, from, to, sortBy, sortOrder));
     }
 }

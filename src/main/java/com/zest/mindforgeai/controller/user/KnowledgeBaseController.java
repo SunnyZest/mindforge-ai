@@ -59,10 +59,12 @@ public class KnowledgeBaseController {
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer status) {
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
 
         return Result.success(
-                knowledgeBaseService.pageKnowledgeBases(page, pageSize, keyword, status));
+                knowledgeBaseService.pageKnowledgeBases(page, pageSize, keyword, status, sortBy, sortOrder));
     }
 
     @Operation(summary = "知识库详情")

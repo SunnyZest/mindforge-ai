@@ -1,11 +1,14 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ChatConstants;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.ChatMessageMapper;
@@ -49,6 +52,13 @@ public class ConversationServiceImpl extends ServiceImpl<ConversationMapper, Con
     /** 会话默认启用状态（conversation.status 是 tinyint，1 = 正常） */
     private static final int STATUS_ACTIVE = 1;
 
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。 */
+    private static final Map<String, SFunction<Conversation, ?>> SORTABLE = Map.of(
+            "title", Conversation::getTitle,
+            "createdAt", Conversation::getCreatedAt,
+            "updatedAt", Conversation::getUpdatedAt);
+
     private final ChatMessageMapper messageMapper;
     private final ChatSourceMapper sourceMapper;
     private final KnowledgeBaseService knowledgeBaseService;
@@ -89,14 +99,18 @@ public class ConversationServiceImpl extends ServiceImpl<ConversationMapper, Con
     }
 
     @Override
-    public PageResultVO<ConversationVO> page(long page, long pageSize) {
+    public PageResultVO<ConversationVO> page(long page, long pageSize,
+                                             String sortBy, String sortOrder) {
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
-        IPage<Conversation> result = page(new Page<>(safePage, safeSize),
-                Wrappers.<Conversation>lambdaQuery()
-                        .eq(Conversation::getUserId, SecurityUtils.getUserId())
-                        .orderByDesc(Conversation::getUpdatedAt));
+        LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<Conversation>()
+                .eq(Conversation::getUserId, SecurityUtils.getUserId());
+        // 兜底按 updatedAt 倒序 —— 最近聊过的排最前
+        SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE,
+                Conversation::getUpdatedAt, false);
+
+        IPage<Conversation> result = page(new Page<>(safePage, safeSize), wrapper);
 
         List<Conversation> records = result.getRecords();
         if (records.isEmpty()) {

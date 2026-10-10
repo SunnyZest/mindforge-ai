@@ -1,6 +1,8 @@
 package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -12,6 +14,7 @@ import com.zest.mindforgeai.client.AiServiceClient.ResumeAnalyzeRequest;
 import com.zest.mindforgeai.client.AiServiceClient.ResumeParseData;
 import com.zest.mindforgeai.client.AiServiceClient.ResumeParseRequest;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.exception.BizException;
@@ -80,6 +83,14 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
             "SUMMARY", "WORK_EXPERIENCE", "PROJECT_EXPERIENCE",
             "SKILLS", "EDUCATION", "OVERALL");
 
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。 */
+    private static final Map<String, SFunction<Resume, ?>> SORTABLE = Map.of(
+            "name", Resume::getName,
+            "targetPosition", Resume::getTargetPosition,
+            "createdAt", Resume::getCreatedAt,
+            "updatedAt", Resume::getUpdatedAt);
+
     private final FileService fileService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
@@ -111,7 +122,8 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
     }
 
     @Override
-    public PageResultVO<ResumeVO> pageResumes(long page, long pageSize, String keyword) {
+    public PageResultVO<ResumeVO> pageResumes(long page, long pageSize, String keyword,
+                                             String sortBy, String sortOrder) {
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
@@ -120,8 +132,9 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
                 // 关键词：简历名称 / 目标职位 任一匹配
                 .and(StringUtils.hasText(keyword), w -> w
                         .like(Resume::getName, keyword).or()
-                        .like(Resume::getTargetPosition, keyword))
-                .orderByDesc(Resume::getId);
+                        .like(Resume::getTargetPosition, keyword));
+
+        SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, Resume::getId, false);
 
         Page<Resume> result = page(new Page<>(safePage, safeSize), wrapper);
 

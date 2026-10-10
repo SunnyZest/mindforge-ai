@@ -66,10 +66,12 @@ public class DocumentController {
             @PathVariable Long knowledgeBaseId,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
-            @RequestParam(required = false) String keyword) {
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
 
-        return Result.success(
-                documentService.pageDocuments(knowledgeBaseId, page, pageSize, keyword));
+        return Result.success(documentService.pageDocuments(
+                knowledgeBaseId, page, pageSize, keyword, sortBy, sortOrder));
     }
 
     @Operation(summary = "文档详情")

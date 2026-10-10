@@ -18,7 +18,8 @@ public interface ConversationService {
     ConversationVO create(CreateConversationDTO dto);
 
     /** 当前用户的会话列表 */
-    PageResultVO<ConversationVO> page(long page, long pageSize);
+    PageResultVO<ConversationVO> page(long page, long pageSize,
+                                      String sortBy, String sortOrder);
 
     /** 会话详情（含完整消息列表） */
     ConversationDetailVO detail(Long conversationId);

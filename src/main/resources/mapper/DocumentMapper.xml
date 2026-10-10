@@ -54,7 +54,11 @@
                OR d.chunk_status = #{status}
                OR d.vector_status = #{status})
         </if>
-        ORDER BY d.id DESC
+        <!--
+          ⚠️ 这里【不要】写 ORDER BY —— 分页排序由 Service 层的
+             SortSupport.applyTo(page, ...) 控制，MP 会把它追加到 SQL 末尾。
+          写了的话会变成 ORDER BY d.id DESC, <用户选的列>，用户选的排序不生效。
+        -->
     </select>
 
     <select id="selectAdminById" resultType="com.zest.mindforgeai.pojo.vo.AdminDocumentVO">

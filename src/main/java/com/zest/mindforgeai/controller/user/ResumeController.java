@@ -53,9 +53,11 @@ public class ResumeController {
     public Result<PageResultVO<ResumeVO>> page(
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
-            @RequestParam(required = false) String keyword) {
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
 
-        return Result.success(resumeService.pageResumes(page, pageSize, keyword));
+        return Result.success(resumeService.pageResumes(page, pageSize, keyword, sortBy, sortOrder));
     }
 
     @Operation(summary = "简历详情")

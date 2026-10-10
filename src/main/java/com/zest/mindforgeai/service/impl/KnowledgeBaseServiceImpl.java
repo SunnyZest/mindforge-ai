@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.KnowledgeBaseMapper;
@@ -40,6 +41,15 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     /** 单页上限，防止前端传个超大 pageSize 拖垮数据库 */
     private static final long MAX_PAGE_SIZE = 100;
 
+    /** 允许前端排序的字段（白名单）—— MyBatis-Plus 的排序是拼 SQL 的，
+     *  不在白名单里的字段一律 40001，绝不把它拼进 SQL。
+     *  值是【数据库列名】—— 这几个走自定义 XML 分页，排序由 MP 拼进 SQL。 */
+    private static final Map<String, String> SORTABLE = Map.of(
+            "name", "kb.name",
+            "status", "kb.status",
+            "createdAt", "kb.created_at",
+            "updatedAt", "kb.updated_at");
+
     private final KnowledgeBaseCascadeService cascadeService;
     private final AuditService auditService;
 
@@ -51,7 +61,8 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
 
     @Override
     public PageResultVO<KnowledgeBaseVO> pageKnowledgeBases(long page, long pageSize,
-                                                            String keyword, Integer status) {
+                                                            String keyword, Integer status,
+                                                            String sortBy, String sortOrder) {
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
@@ -59,8 +70,13 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
         // 表里的 document_count 冗余字段无人维护（永远是 0），这里改成实时 COUNT，
         // 保证列表和 stats 接口的口径一致。
         // 归属校验（user_id）也写在 SQL 里，不依赖上层。
+        Page<KnowledgeBase> pageParam = new Page<>(safePage, safeSize);
+        // ⚠️ XML 里【不能】再写 ORDER BY —— MP 会把这里的排序追加在后面，
+        //    排在后面的字段完全不生效（第一个已经决定了顺序）。
+        SortSupport.applyTo(pageParam, sortBy, sortOrder, SORTABLE, "kb.id", false);
+
         IPage<KnowledgeBase> result = baseMapper.selectPageWithDocumentCount(
-                new Page<>(safePage, safeSize),
+                pageParam,
                 SecurityUtils.getUserId(),
                 keyword,
                 status);

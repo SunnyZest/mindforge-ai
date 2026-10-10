@@ -39,7 +39,12 @@
         <if test="keyword != null and keyword != ''">
           AND kb.name LIKE CONCAT('%', #{keyword}, '%')
         </if>
-        ORDER BY kb.id DESC
+        <!--
+          ⚠️ 这里【不要】写 ORDER BY —— 分页排序由 Service 层的
+             SortSupport.applyTo(page, ...) 控制，MP 会把它追加到 SQL 末尾。
+          写了的话会变成 ORDER BY kb.id DESC, <用户选的列> ——
+          第一个字段已经决定了顺序，用户选的排序完全不生效。
+        -->
     </select>
 
     <!--
@@ -82,7 +87,7 @@
         <if test="keyword != null and keyword != ''">
           AND kb.name LIKE CONCAT('%', #{keyword}, '%')
         </if>
-        ORDER BY kb.id DESC
+        <!-- ORDER BY 见上面 selectPageWithDocumentCount 的说明 -->
     </select>
 
     <select id="selectAdminById" resultType="com.zest.mindforgeai.pojo.vo.AdminKnowledgeBaseVO">

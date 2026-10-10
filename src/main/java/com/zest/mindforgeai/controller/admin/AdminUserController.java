@@ -57,9 +57,12 @@ public class AdminUserController {
             @RequestParam(defaultValue = "20") long pageSize,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer status,
-            @RequestParam(required = false) String role) {
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
 
-        return Result.success(adminUserService.pageUsers(page, pageSize, keyword, status, role));
+        return Result.success(adminUserService.pageUsers(
+                page, pageSize, keyword, status, role, sortBy, sortOrder));
     }
 
     @Operation(summary = "创建用户")

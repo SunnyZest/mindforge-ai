@@ -51,10 +51,12 @@ public class AdminKnowledgeBaseController {
             @RequestParam(defaultValue = "20") long pageSize,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer status,
-            @RequestParam(required = false) Long userId) {
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
 
-        return Result.success(
-                adminKnowledgeService.pageKnowledgeBases(page, pageSize, keyword, status, userId));
+        return Result.success(adminKnowledgeService.pageKnowledgeBases(
+                page, pageSize, keyword, status, userId, sortBy, sortOrder));
     }
 
     @Operation(summary = "知识库详情")

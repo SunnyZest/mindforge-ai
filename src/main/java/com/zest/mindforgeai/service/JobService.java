@@ -18,7 +18,8 @@ import com.zest.mindforgeai.pojo.vo.PageResultVO;
 public interface JobService {
 
     /** 分页列表（关键词匹配职位名称 / 公司名称） */
-    PageResultVO<JobVO> pageJobs(long page, long pageSize, String keyword);
+    PageResultVO<JobVO> pageJobs(long page, long pageSize, String keyword,
+                                 String sortBy, String sortOrder);
 
     /** 详情（含 JD 正文和已解析的结构化数据） */
     JobDetailVO getDetail(Long id);

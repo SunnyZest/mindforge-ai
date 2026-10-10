@@ -22,7 +22,8 @@ public interface KnowledgeBaseService extends IService<KnowledgeBase> {
 
     /** 当前用户的知识库分页列表 */
     PageResultVO<KnowledgeBaseVO> pageKnowledgeBases(long page, long pageSize,
-                                                     String keyword, Integer status);
+                                                     String keyword, Integer status,
+                                                     String sortBy, String sortOrder);
 
     /** 知识库详情（校验归属） */
     KnowledgeBaseVO getDetail(Long id);

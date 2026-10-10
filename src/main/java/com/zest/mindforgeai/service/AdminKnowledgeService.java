@@ -24,7 +24,8 @@ public interface AdminKnowledgeService {
      * @param userId  只看某个用户的，可空
      */
     PageResultVO<AdminKnowledgeBaseVO> pageKnowledgeBases(long page, long pageSize,
-                                                          String keyword, Integer status, Long userId);
+                                                          String keyword, Integer status, Long userId,
+                                                          String sortBy, String sortOrder);
 
     /** 知识库详情（含归属人） */
     AdminKnowledgeBaseVO getDetail(Long id);
