@@ -19,6 +19,7 @@ import com.zest.mindforgeai.pojo.entity.ChatSource;
 import com.zest.mindforgeai.pojo.entity.Conversation;
 import com.zest.mindforgeai.pojo.entity.DocumentChunk;
 import com.zest.mindforgeai.pojo.entity.Document;
+import com.zest.mindforgeai.pojo.vo.RagSearchVO;
 import com.zest.mindforgeai.pojo.vo.SendMessageResultVO;
 import com.zest.mindforgeai.pojo.vo.SourceVO;
 import com.zest.mindforgeai.service.AuditService;
@@ -221,7 +222,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    public List<SourceVO> search(RagSearchDTO dto) {
+    public RagSearchVO search(RagSearchDTO dto) {
         // 校验知识库归属 —— 不校验的话传别人的 kbId 就能检索别人的资料
         Long kbId = Long.valueOf(dto.getKnowledgeBaseId());
         knowledgeBaseService.getOwned(kbId);
@@ -233,7 +234,10 @@ public class ChatServiceImpl implements ChatService {
                 dto.getTopK(),
                 Boolean.TRUE.equals(dto.getEnableRerank())));
 
-        return toSourceVOs(data.results());
+        RagSearchVO vo = new RagSearchVO();
+        vo.setResults(toSourceVOs(data.results()));
+        vo.setReranked(Boolean.TRUE.equals(data.reranked()));
+        return vo;
     }
 
     @Override

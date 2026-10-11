@@ -3,7 +3,7 @@ package com.zest.mindforgeai.controller.user;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.RagFeedbackDTO;
 import com.zest.mindforgeai.pojo.dto.RagSearchDTO;
-import com.zest.mindforgeai.pojo.vo.SourceVO;
+import com.zest.mindforgeai.pojo.vo.RagSearchVO;
 import com.zest.mindforgeai.service.ChatService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -41,10 +41,10 @@ public class RagController {
      * 用途：让用户在提问前先看看知识库里有没有相关内容，
      * 或者做「搜索」式的交互。比问答快得多，也不消耗模型额度。
      */
-    @Operation(summary = "RAG 检索（不生成回答）")
+    @Operation(summary = "RAG 检索（不生成回答）", description = "data.results 为片段列表；data.reranked 表示本次是否真的经过重排序")
     @PostMapping("/search")
     @PreAuthorize("hasAuthority('app:rag:search')")
-    public Result<List<SourceVO>> search(@Valid @RequestBody RagSearchDTO dto) {
+    public Result<RagSearchVO> search(@Valid @RequestBody RagSearchDTO dto) {
         return Result.success(chatService.search(dto));
     }
 

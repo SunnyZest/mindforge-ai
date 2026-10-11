@@ -3,6 +3,7 @@ package com.zest.mindforgeai.service;
 import com.zest.mindforgeai.pojo.dto.RagFeedbackDTO;
 import com.zest.mindforgeai.pojo.dto.RagSearchDTO;
 import com.zest.mindforgeai.pojo.dto.SendMessageDTO;
+import com.zest.mindforgeai.pojo.vo.RagSearchVO;
 import com.zest.mindforgeai.pojo.vo.SendMessageResultVO;
 import com.zest.mindforgeai.pojo.vo.SourceVO;
 
@@ -78,8 +79,8 @@ public interface ChatService {
         void onError(int code, String message);
     }
 
-    /** 只检索，不生成回答、不落库 */
-    List<SourceVO> search(RagSearchDTO dto);
+    /** 只检索，不生成回答、不落库。返回 results + reranked（本次是否真的精排过） */
+    RagSearchVO search(RagSearchDTO dto);
 
     /** 给某条回答打分 */
     void feedback(RagFeedbackDTO dto);

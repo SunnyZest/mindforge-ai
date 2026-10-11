@@ -29,6 +29,6 @@ public class RagSearchDTO {
     @Max(value = 50, message = "topK 最多为 50")
     private Integer topK = 8;
 
-    @Schema(description = "是否重排序（暂不生效）")
+    @Schema(description = "是否重排序（未配置 RERANK 模型或调用失败时 Python 侧降级回向量序，响应 reranked 字段如实反映）")
     private Boolean enableRerank = false;
 }

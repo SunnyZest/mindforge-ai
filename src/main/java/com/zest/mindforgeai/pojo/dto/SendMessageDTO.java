@@ -32,7 +32,7 @@ public class SendMessageDTO {
      * 响应里会如实返回 {@code reranked: false}。留着字段是为了将来兼容，
      * 前端现在传什么都不影响结果。
      */
-    @Schema(description = "是否重排序（暂不生效）")
+    @Schema(description = "是否重排序（未配置 RERANK 模型或调用失败时 Python 侧降级回向量序）")
     private Boolean enableRerank = false;
 
     /**
