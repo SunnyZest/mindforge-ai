@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -114,6 +115,19 @@ public class AlertServiceImpl extends ServiceImpl<AlertMapper, SysAlert>
     @Transactional(rollbackFor = Exception.class)
     public int markAllRead(long adminUserId) {
         return baseMapper.update(null, new LambdaUpdateWrapper<SysAlert>()
+                .isNull(SysAlert::getReadAt)
+                .set(SysAlert::getReadBy, adminUserId)
+                .set(SysAlert::getReadAt, LocalDateTime.now()));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchMarkRead(List<Long> alertIds, long adminUserId) {
+        if (alertIds == null || alertIds.isEmpty()) {
+            return 0;
+        }
+        return baseMapper.update(null, new LambdaUpdateWrapper<SysAlert>()
+                .in(SysAlert::getId, alertIds)
                 .isNull(SysAlert::getReadAt)
                 .set(SysAlert::getReadBy, adminUserId)
                 .set(SysAlert::getReadAt, LocalDateTime.now()));

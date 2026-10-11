@@ -1,17 +1,20 @@
 package com.zest.mindforgeai.controller.admin;
 
 import com.zest.mindforgeai.common.result.Result;
+import com.zest.mindforgeai.pojo.dto.BatchIdsDTO;
 import com.zest.mindforgeai.pojo.vo.AlertVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.service.AlertService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -70,5 +73,12 @@ public class AdminAlertController {
     @PreAuthorize("hasAuthority('admin:alert:list')")
     public Result<Integer> markAllRead() {
         return Result.success(alertService.markAllRead(SecurityUtils.getUserId()));
+    }
+
+    @Operation(summary = "批量标记已读")
+    @PutMapping("/batch-read")
+    @PreAuthorize("hasAuthority('admin:alert:list')")
+    public Result<Integer> batchMarkRead(@Valid @RequestBody BatchIdsDTO dto) {
+        return Result.success(alertService.batchMarkRead(dto.getIds(), SecurityUtils.getUserId()));
     }
 }

@@ -54,4 +54,7 @@ public interface AlertService extends IService<SysAlert> {
 
     /** 全部标记已读，返回本次新标记的条数。 */
     int markAllRead(long adminUserId);
+
+    /** 批量标记已读，返回本次新标记的条数。 */
+    int batchMarkRead(java.util.List<Long> alertIds, long adminUserId);
 }

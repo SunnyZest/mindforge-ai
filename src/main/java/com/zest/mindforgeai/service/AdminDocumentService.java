@@ -46,4 +46,10 @@ public interface AdminDocumentService {
 
     /** 删除文档（逻辑删除 document + sys_file，不动 OSS 对象） */
     void delete(Long id);
+
+    /** 批量重试失败的文档，返回成功重置条数 */
+    int batchRetry(java.util.List<Long> ids);
+
+    /** 批量删除文档，返回成功删除条数 */
+    int batchDelete(java.util.List<Long> ids);
 }

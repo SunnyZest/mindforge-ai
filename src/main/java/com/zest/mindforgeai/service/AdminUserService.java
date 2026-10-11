@@ -61,4 +61,13 @@ public interface AdminUserService {
      * 账号本身是<b>逻辑删除</b> —— 数据留着可追溯，但用户名/邮箱永久占用。
      */
     void deleteUser(Long userId);
+
+    /** 批量更新用户状态（启用/禁用），返回成功条数 */
+    int batchUpdateStatus(List<Long> ids, Integer status);
+
+    /** 批量分配角色，返回成功条数 */
+    int batchAssignRoles(List<Long> ids, List<Long> roleIds);
+
+    /** 批量删除用户，返回成功条数 */
+    int batchDeleteUsers(List<Long> ids);
 }

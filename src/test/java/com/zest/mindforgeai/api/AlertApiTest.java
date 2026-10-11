@@ -126,6 +126,22 @@ class AlertApiTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("批量选定标记已读，返回本次新标记条数")
+    void batchMarkRead() {
+        createRole("ALERT_B1_" + System.nanoTime()).assertSuccess();
+        createRole("ALERT_B2_" + System.nanoTime()).assertSuccess();
+
+        var listRes = get(PATH + "?pageSize=2&sortBy=createdAt&sortOrder=desc", loginAsAdmin())
+                .assertSuccess().data().get("records");
+        long id1 = listRes.get(0).get("id").asLong();
+        long id2 = listRes.get(1).get("id").asLong();
+
+        int marked = put(PATH + "/batch-read", loginAsAdmin(), Map.of("ids", java.util.List.of(id1, id2)))
+                .assertSuccess().data().asInt();
+        assertThat(marked).isGreaterThanOrEqualTo(2);
+    }
+
+    @Test
     @DisplayName("标记不存在的告警 → 404")
     void markMissingAlertIsNotFound() {
         put(PATH + "/999999999/read", loginAsAdmin(), null).assertCode(40415);

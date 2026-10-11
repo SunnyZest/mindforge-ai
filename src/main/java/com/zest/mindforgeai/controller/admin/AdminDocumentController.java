@@ -1,6 +1,7 @@
 package com.zest.mindforgeai.controller.admin;
 
 import com.zest.mindforgeai.common.result.Result;
+import com.zest.mindforgeai.pojo.dto.BatchIdsDTO;
 import com.zest.mindforgeai.pojo.dto.DocumentStatusUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.AdminDocumentVO;
 import com.zest.mindforgeai.pojo.vo.ChunkVO;
@@ -99,6 +100,20 @@ public class AdminDocumentController {
     public Result<Void> delete(@PathVariable Long id) {
         adminDocumentService.delete(id);
         return Result.success();
+    }
+
+    @Operation(summary = "批量重试文档")
+    @PostMapping("/documents/batch-retry")
+    @PreAuthorize("hasAuthority('admin:document:retry')")
+    public Result<Integer> batchRetry(@Valid @RequestBody BatchIdsDTO dto) {
+        return Result.success(adminDocumentService.batchRetry(dto.getIds()));
+    }
+
+    @Operation(summary = "批量删除文档")
+    @DeleteMapping("/documents/batch")
+    @PreAuthorize("hasAuthority('admin:document:delete')")
+    public Result<Integer> batchDelete(@Valid @RequestBody BatchIdsDTO dto) {
+        return Result.success(adminDocumentService.batchDelete(dto.getIds()));
     }
 
     /**

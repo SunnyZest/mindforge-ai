@@ -25,6 +25,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -242,6 +243,51 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
 
         auditService.recordSuccess(AuditConstants.ACTION_DOCUMENT_DELETE,
                 AuditConstants.RESOURCE_DOCUMENT, String.valueOf(id), detail);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchRetry(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (Long id : ids) {
+            if (id == null) {
+                continue;
+            }
+            Document doc = documentMapper.selectById(id);
+            if (doc == null) {
+                continue;
+            }
+            if (DocumentStatusUtils.FAILED.equals(doc.getParseStatus())
+                    || DocumentStatusUtils.FAILED.equals(doc.getChunkStatus())
+                    || DocumentStatusUtils.FAILED.equals(doc.getVectorStatus())) {
+                retry(id);
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchDelete(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (Long id : ids) {
+            if (id == null) {
+                continue;
+            }
+            Document doc = documentMapper.selectById(id);
+            if (doc != null) {
+                delete(id);
+                count++;
+            }
+        }
+        return count;
     }
 
     /* ---------- 内部工具 ---------- */

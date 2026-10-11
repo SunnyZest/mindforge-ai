@@ -353,6 +353,75 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
                 Map.of("username", user.getUsername()));
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchUpdateStatus(List<Long> ids, Integer status) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (Long id : ids) {
+            if (id == null) {
+                continue;
+            }
+            if (status != null && status == 0 && id.equals(SecurityUtils.getUserId())) {
+                continue;
+            }
+            User user = getById(id);
+            if (user == null) {
+                continue;
+            }
+            updateStatus(id, status);
+            count++;
+        }
+        return count;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchAssignRoles(List<Long> ids, List<Long> roleIds) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (Long id : ids) {
+            if (id == null) {
+                continue;
+            }
+            User user = getById(id);
+            if (user == null) {
+                continue;
+            }
+            assignRoles(id, roleIds);
+            count++;
+        }
+        return count;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchDeleteUsers(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (Long id : ids) {
+            if (id == null) {
+                continue;
+            }
+            if (id.equals(SecurityUtils.getUserId())) {
+                continue;
+            }
+            User user = getById(id);
+            if (user == null) {
+                continue;
+            }
+            deleteUser(id);
+            count++;
+        }
+        return count;
+    }
+
     /* ---------- 内部工具 ---------- */
 
     /** 批量查角色并分组：userId → [roleCode, ...] */

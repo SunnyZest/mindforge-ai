@@ -3,6 +3,9 @@ package com.zest.mindforgeai.controller.admin;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.AdminUserCreateDTO;
 import com.zest.mindforgeai.pojo.dto.AssignRolesDTO;
+import com.zest.mindforgeai.pojo.dto.BatchIdsDTO;
+import com.zest.mindforgeai.pojo.dto.BatchRolesDTO;
+import com.zest.mindforgeai.pojo.dto.BatchStatusDTO;
 import com.zest.mindforgeai.pojo.dto.UserStatusDTO;
 import com.zest.mindforgeai.pojo.dto.UserUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
@@ -115,5 +118,27 @@ public class AdminUserController {
     public Result<Void> assignRoles(@PathVariable Long id, @Valid @RequestBody AssignRolesDTO dto) {
         adminUserService.assignRoles(id, dto.getRoleIds());
         return Result.success();
+    }
+
+    @Operation(summary = "批量启用 / 禁用用户")
+    @PutMapping("/batch-status")
+    @PreAuthorize("hasAuthority('admin:user:disable')")
+    public Result<Integer> batchStatus(@Valid @RequestBody BatchStatusDTO dto) {
+        return Result.success(adminUserService.batchUpdateStatus(dto.getIds(), dto.getStatus()));
+    }
+
+    @Operation(summary = "批量给用户分配角色")
+    @PutMapping("/batch-roles")
+    @PreAuthorize("hasAuthority('admin:user:assign-role')")
+    public Result<Integer> batchRoles(@Valid @RequestBody BatchRolesDTO dto) {
+        return Result.success(adminUserService.batchAssignRoles(dto.getIds(), dto.getRoleIds()));
+    }
+
+    @Operation(summary = "批量删除用户（高危操作，二次确认）")
+    @DeleteMapping("/batch")
+    @PreAuthorize("hasAuthority('admin:user:delete')")
+    public Result<Integer> batchDelete(@Valid @RequestBody BatchIdsDTO dto, HttpServletRequest request) {
+        secondaryConfirmService.validateAndConsume(request);
+        return Result.success(adminUserService.batchDeleteUsers(dto.getIds()));
     }
 }
