@@ -5,6 +5,7 @@ import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.constant.RoleConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.result.Result;
+import com.zest.mindforgeai.pojo.dto.ChangePasswordDTO;
 import com.zest.mindforgeai.pojo.dto.LoginDTO;
 import com.zest.mindforgeai.pojo.dto.RefreshTokenDTO;
 import com.zest.mindforgeai.pojo.entity.User;
@@ -14,6 +15,8 @@ import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.LoginAttemptService;
 import com.zest.mindforgeai.service.RefreshTokenService;
+import com.zest.mindforgeai.service.SecondaryConfirmService;
+import com.zest.mindforgeai.service.UserProfileService;
 import com.zest.mindforgeai.service.UserService;
 import com.zest.mindforgeai.utils.ClientIpResolver;
 import com.zest.mindforgeai.utils.JwtUtil;
@@ -57,6 +60,8 @@ public class AdminAuthController {
     private final RefreshTokenService refreshTokenService;
     private final LoginAttemptService loginAttemptService;
     private final ClientIpResolver ipResolver;
+    private final SecondaryConfirmService secondaryConfirmService;
+    private final UserProfileService userProfileService;
 
     public AdminAuthController(AuthenticationManager authenticationManager,
                                JwtUtil jwtUtil,
@@ -64,7 +69,9 @@ public class AdminAuthController {
                                AuditService auditService,
                                RefreshTokenService refreshTokenService,
                                LoginAttemptService loginAttemptService,
-                               ClientIpResolver ipResolver) {
+                               ClientIpResolver ipResolver,
+                               SecondaryConfirmService secondaryConfirmService,
+                               UserProfileService userProfileService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
@@ -72,6 +79,8 @@ public class AdminAuthController {
         this.refreshTokenService = refreshTokenService;
         this.loginAttemptService = loginAttemptService;
         this.ipResolver = ipResolver;
+        this.secondaryConfirmService = secondaryConfirmService;
+        this.userProfileService = userProfileService;
     }
 
     @Operation(summary = "管理员登录")
@@ -212,6 +221,29 @@ public class AdminAuthController {
     public Result<Void> logout(@Valid @RequestBody RefreshTokenDTO dto) {
         refreshTokenService.revoke(dto.getRefreshToken());
         log.info("管理员登出");
+        return Result.success();
+    }
+
+    /**
+     * 获取高危操作二次确认凭据。
+     */
+    @Operation(summary = "获取高危操作二次确认凭据")
+    @PostMapping("/confirm-token")
+    public Result<com.zest.mindforgeai.pojo.vo.ConfirmTokenVO> issueConfirmToken(
+            @Valid @RequestBody com.zest.mindforgeai.pojo.dto.ConfirmTokenRequestDTO dto) {
+        return Result.success(secondaryConfirmService.issueConfirmToken(dto.getPassword()));
+    }
+
+    /**
+     * 管理员修改自身密码。
+     * <p>
+     * 需要携带有效 accessToken，受防爆破锁定保护。
+     */
+    @Operation(summary = "管理员修改自身密码")
+    @PostMapping("/password")
+    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordDTO dto, HttpServletRequest request) {
+        String clientIp = ipResolver.resolve(request);
+        userProfileService.changePassword(dto, clientIp);
         return Result.success();
     }
 }

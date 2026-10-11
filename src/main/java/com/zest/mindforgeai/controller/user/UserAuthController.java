@@ -15,6 +15,7 @@ import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.LoginAttemptService;
 import com.zest.mindforgeai.service.RefreshTokenService;
+import com.zest.mindforgeai.service.SecondaryConfirmService;
 import com.zest.mindforgeai.service.UserProfileService;
 import com.zest.mindforgeai.service.UserService;
 import com.zest.mindforgeai.utils.ClientIpResolver;
@@ -62,6 +63,7 @@ public class UserAuthController {
     private final LoginAttemptService loginAttemptService;
     private final ClientIpResolver ipResolver;
     private final UserProfileService userProfileService;
+    private final SecondaryConfirmService secondaryConfirmService;
 
     public UserAuthController(AuthenticationManager authenticationManager,
                               JwtUtil jwtUtil,
@@ -70,7 +72,8 @@ public class UserAuthController {
                               RefreshTokenService refreshTokenService,
                               LoginAttemptService loginAttemptService,
                               ClientIpResolver ipResolver,
-                              UserProfileService userProfileService) {
+                              UserProfileService userProfileService,
+                              SecondaryConfirmService secondaryConfirmService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
@@ -79,6 +82,7 @@ public class UserAuthController {
         this.loginAttemptService = loginAttemptService;
         this.ipResolver = ipResolver;
         this.userProfileService = userProfileService;
+        this.secondaryConfirmService = secondaryConfirmService;
     }
 
     @Operation(summary = "用户注册")
@@ -226,8 +230,19 @@ public class UserAuthController {
      */
     @Operation(summary = "修改当前用户密码")
     @PostMapping("/password")
-    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordDTO dto) {
-        userProfileService.changePassword(dto);
+    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordDTO dto, HttpServletRequest request) {
+        String clientIp = ipResolver.resolve(request);
+        userProfileService.changePassword(dto, clientIp);
         return Result.success();
+    }
+
+    /**
+     * 获取高危操作二次确认凭据。
+     */
+    @Operation(summary = "获取高危操作二次确认凭据")
+    @PostMapping("/confirm-token")
+    public Result<com.zest.mindforgeai.pojo.vo.ConfirmTokenVO> issueConfirmToken(
+            @Valid @RequestBody com.zest.mindforgeai.pojo.dto.ConfirmTokenRequestDTO dto) {
+        return Result.success(secondaryConfirmService.issueConfirmToken(dto.getPassword()));
     }
 }

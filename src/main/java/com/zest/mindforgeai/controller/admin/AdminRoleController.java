@@ -7,8 +7,10 @@ import com.zest.mindforgeai.pojo.dto.RoleUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.PermissionVO;
 import com.zest.mindforgeai.pojo.vo.RoleVO;
 import com.zest.mindforgeai.service.RoleService;
+import com.zest.mindforgeai.service.SecondaryConfirmService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -42,9 +44,12 @@ import java.util.List;
 public class AdminRoleController {
 
     private final RoleService roleService;
+    private final SecondaryConfirmService secondaryConfirmService;
 
-    public AdminRoleController(RoleService roleService) {
+    public AdminRoleController(RoleService roleService,
+                               SecondaryConfirmService secondaryConfirmService) {
         this.roleService = roleService;
+        this.secondaryConfirmService = secondaryConfirmService;
     }
 
     @Operation(summary = "角色列表")
@@ -72,7 +77,8 @@ public class AdminRoleController {
     @Operation(summary = "删除角色")
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('admin:role:delete')")
-    public Result<Void> delete(@PathVariable Long id) {
+    public Result<Void> delete(@PathVariable Long id, HttpServletRequest request) {
+        secondaryConfirmService.validateAndConsume(request);
         roleService.deleteRole(id);
         return Result.success();
     }

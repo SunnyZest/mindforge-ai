@@ -2,26 +2,24 @@ package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
-import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.UserMapper;
-import com.zest.mindforgeai.mapper.UserMapper;
-import com.zest.mindforgeai.pojo.entity.SysFile;
 import com.zest.mindforgeai.pojo.dto.ChangePasswordDTO;
 import com.zest.mindforgeai.pojo.dto.UserProfileUpdateDTO;
+import com.zest.mindforgeai.pojo.entity.SysFile;
 import com.zest.mindforgeai.pojo.entity.User;
 import com.zest.mindforgeai.pojo.vo.UserProfileVO;
 import com.zest.mindforgeai.pojo.vo.UserPublicVO;
 import com.zest.mindforgeai.service.AuditService;
-import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.FileService;
+import com.zest.mindforgeai.service.LoginAttemptService;
 import com.zest.mindforgeai.service.RefreshTokenService;
 import com.zest.mindforgeai.service.UserProfileService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,15 +44,18 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
     private final RefreshTokenService refreshTokenService;
     private final AuditService auditService;
     private final FileService fileService;
+    private final LoginAttemptService loginAttemptService;
 
     public UserProfileServiceImpl(PasswordEncoder passwordEncoder,
                                   RefreshTokenService refreshTokenService,
                                   AuditService auditService,
-                                  FileService fileService) {
+                                  FileService fileService,
+                                  LoginAttemptService loginAttemptService) {
         this.passwordEncoder = passwordEncoder;
         this.refreshTokenService = refreshTokenService;
         this.auditService = auditService;
         this.fileService = fileService;
+        this.loginAttemptService = loginAttemptService;
     }
 
     @Override
@@ -139,13 +140,25 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void changePassword(ChangePasswordDTO dto) {
+        changePassword(dto, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void changePassword(ChangePasswordDTO dto, String clientIp) {
         User user = requireCurrentUser();
         Long userId = user.getId();
+
+        // 检查是否处于锁定中（防旧密码暴力破解）
+        loginAttemptService.checkPasswordChangeNotLocked(user.getUsername(), clientIp);
 
         // ① 校验原密码。
         //    只认 accessToken 就允许改密码的话，token 一旦泄漏（XSS / 日志 / 截图），
         //    攻击者拿到就能直接接管账号 —— 所以必须再验一次只有本人知道的东西。
         if (!passwordEncoder.matches(dto.getOldPassword(), user.getPasswordHash())) {
+            // 记录失败尝试（按用户和 IP 累加计数，超限即锁）
+            loginAttemptService.recordPasswordChangeFailure(user.getUsername(), clientIp);
+
             // 失败要留痕：拿着有效 token 却不知道原密码，是很可疑的信号
             auditService.recordFailure(AuditConstants.ACTION_USER_CHANGE_PASSWORD,
                     AuditConstants.RESOURCE_USER, String.valueOf(userId),
@@ -165,12 +178,10 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
                 .setUpdatedAt(LocalDateTime.now()));
 
         // ③ 撤销该用户全部 refresh token —— 密码换了，之前发出去的所有会话都该失效。
-        //    常见场景：怀疑账号被盗，改密码是为了把别人踢下线；
-        //    如果不动 refresh token，攻击者手里的 token 还能一直换新 access token，
-        //    「改密码」就白改了。
-        //    ⚠️ access token 是无状态的，剩余有效期内仍可用（最长 30 分钟），
-        //    这是 JWT 的固有取舍，和登出是同一个窗口。
         refreshTokenService.revokeAll(userId);
+
+        // ④ 成功重置修改密码失败计数
+        loginAttemptService.recordPasswordChangeSuccess(user.getUsername(), clientIp);
 
         log.info("用户修改密码成功 userId={}", userId);
         auditService.recordSuccess(AuditConstants.ACTION_USER_CHANGE_PASSWORD,

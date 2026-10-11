@@ -29,6 +29,8 @@ public class LoginAttemptServiceImpl implements LoginAttemptService {
     /** key 前缀，方便在 Redis 里辨认，也避免和其他业务冲突 */
     private static final String PREFIX_USER = "mf:login:fail:u:";
     private static final String PREFIX_IP = "mf:login:fail:ip:";
+    private static final String PREFIX_PWD_USER = "mf:pwd:fail:u:";
+    private static final String PREFIX_PWD_IP = "mf:pwd:fail:ip:";
 
     /** 用户名最大长度，对齐 {@code user.username varchar(32)} —— 也是 Redis key 长度的硬上限 */
     private static final int MAX_USERNAME_LEN = 32;
@@ -121,6 +123,68 @@ public class LoginAttemptServiceImpl implements LoginAttemptService {
             redis.delete(PREFIX_USER + normalize(username));
         } catch (Exception e) {
             log.error("清除登录失败计数失败（Redis 不可用？）username={}", username, e);
+        }
+    }
+
+    @Override
+    public void checkPasswordChangeNotLocked(String username, String clientIp) {
+        if (!properties.getLoginAttempt().isEnabled()) {
+            return;
+        }
+
+        try {
+            SecurityProperties.LoginAttempt cfg = properties.getLoginAttempt();
+            long userRemain = lockedRemainSeconds(PREFIX_PWD_USER + normalize(username), cfg.getMaxPerUsername());
+            long ipRemain = lockedRemainSeconds(PREFIX_PWD_IP + clientIp, cfg.getMaxPerIp());
+            long remain = Math.max(userRemain, ipRemain);
+
+            if (remain > 0) {
+                long minutes = (remain + 59) / 60;
+                log.warn("修改密码被拒：账号或 IP 处于锁定中，剩余 {} 分钟（username={} ip={}）",
+                        minutes, username, clientIp);
+                throw new BizException(ErrorCode.PASSWORD_CHANGE_TOO_MANY_ATTEMPTS,
+                        String.format("修改密码失败次数过多，请 %d 分钟后再试", minutes));
+            }
+        } catch (BizException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("检查修改密码锁定状态失败（Redis 不可用？），本次放行", e);
+        }
+    }
+
+    @Override
+    public void recordPasswordChangeFailure(String username, String clientIp) {
+        if (!properties.getLoginAttempt().isEnabled()) {
+            return;
+        }
+
+        try {
+            SecurityProperties.LoginAttempt cfg = properties.getLoginAttempt();
+            int userCount = increment(PREFIX_PWD_USER + normalize(username), cfg.getLockMinutes());
+            int ipCount = increment(PREFIX_PWD_IP + clientIp, cfg.getLockMinutes());
+
+            if (userCount == cfg.getMaxPerUsername()) {
+                log.warn("账号 {} 连续修改密码失败 {} 次，已锁定 {} 分钟",
+                        username, userCount, cfg.getLockMinutes());
+            }
+            if (ipCount == cfg.getMaxPerIp()) {
+                log.warn("IP {} 连续修改密码失败 {} 次，已锁定 {} 分钟",
+                        clientIp, ipCount, cfg.getLockMinutes());
+            }
+        } catch (Exception e) {
+            log.error("记录修改密码失败次数失败（Redis 不可用？）username={}", username, e);
+        }
+    }
+
+    @Override
+    public void recordPasswordChangeSuccess(String username, String clientIp) {
+        if (!properties.getLoginAttempt().isEnabled()) {
+            return;
+        }
+        try {
+            redis.delete(PREFIX_PWD_USER + normalize(username));
+        } catch (Exception e) {
+            log.error("清除修改密码失败计数失败（Redis 不可用？）username={}", username, e);
         }
     }
 

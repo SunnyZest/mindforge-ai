@@ -35,4 +35,19 @@ public interface LoginAttemptService {
      * 攻击者自己登录成功一次就把 IP 计数清零，等于给了他无限次机会。
      */
     void recordSuccess(String username, String clientIp);
+
+    /**
+     * 修改密码前调用：如果账号或 IP 尝试修改密码失败过多，抛 {@code PASSWORD_CHANGE_TOO_MANY_ATTEMPTS}。
+     */
+    void checkPasswordChangeNotLocked(String username, String clientIp);
+
+    /**
+     * 修改密码验证旧密码失败时调用：累加计数，达到阈值就锁定。
+     */
+    void recordPasswordChangeFailure(String username, String clientIp);
+
+    /**
+     * 修改密码成功时调用：清空该用户的修改密码失败计数。
+     */
+    void recordPasswordChangeSuccess(String username, String clientIp);
 }

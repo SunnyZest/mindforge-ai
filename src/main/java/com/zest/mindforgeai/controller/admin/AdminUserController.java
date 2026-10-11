@@ -9,8 +9,10 @@ import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.pojo.vo.UserSummaryVO;
 import com.zest.mindforgeai.service.AdminUserService;
+import com.zest.mindforgeai.service.SecondaryConfirmService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -44,9 +46,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminUserController {
 
     private final AdminUserService adminUserService;
+    private final SecondaryConfirmService secondaryConfirmService;
 
-    public AdminUserController(AdminUserService adminUserService) {
+    public AdminUserController(AdminUserService adminUserService,
+                              SecondaryConfirmService secondaryConfirmService) {
         this.adminUserService = adminUserService;
+        this.secondaryConfirmService = secondaryConfirmService;
     }
 
     @Operation(summary = "用户列表（分页）")
@@ -75,7 +80,8 @@ public class AdminUserController {
     @Operation(summary = "删除用户")
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('admin:user:delete')")
-    public Result<Void> delete(@PathVariable Long id) {
+    public Result<Void> delete(@PathVariable Long id, HttpServletRequest request) {
+        secondaryConfirmService.validateAndConsume(request);
         adminUserService.deleteUser(id);
         return Result.success();
     }

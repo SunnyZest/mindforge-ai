@@ -36,6 +36,8 @@ public enum ErrorCode {
      */
     RESOURCE_FORBIDDEN(40302, "无权访问该资源"),
     ACCOUNT_DISABLED(40303, "账号已被禁用"),
+    CONFIRM_REQUIRED(40304, "高危操作需要二次确认"),
+    CONFIRM_FAILED(40305, "二次确认验证失败，密码错误或凭证已过期"),
 
     USER_NOT_FOUND(40401, "用户不存在"),
     RESOURCE_NOT_FOUND(40402, "资源不存在"),
@@ -62,6 +64,7 @@ public enum ErrorCode {
     FILE_TYPE_UNSUPPORTED(42201, "文件类型不支持"),
     TOO_MANY_REQUESTS(42901, "请求过于频繁，请稍后再试"),
     LOGIN_TOO_MANY_ATTEMPTS(42902, "登录失败次数过多，账号已临时锁定"),
+    PASSWORD_CHANGE_TOO_MANY_ATTEMPTS(42903, "修改密码失败次数过多，账号已临时锁定"),
 
     SYSTEM_ERROR(50001, "系统内部异常"),
     AI_SERVICE_ERROR(50201, "AI 服务异常"),

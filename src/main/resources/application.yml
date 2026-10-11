@@ -115,6 +115,8 @@ mindforge:
   task:
     # 清理过期 refreshToken 的 cron（默认每天 03:10）
     refresh-token-cleanup-cron: 0 10 3 * * ?
+    # 历史数据归档的 cron（默认每天 03:40，避开高峰与清理任务）
+    data-archive-cron: 0 40 3 * * ?
 
   # 调 Python AI 服务（Java → Python 方向）。
   # service-token 在 application-dev.yml 里配，和 Python 的 JAVA_SERVICE_TOKEN 一致。

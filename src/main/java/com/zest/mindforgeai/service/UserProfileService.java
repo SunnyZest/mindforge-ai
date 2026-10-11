@@ -43,6 +43,11 @@ public interface UserProfileService {
     void changePassword(ChangePasswordDTO dto);
 
     /**
+     * 修改当前登录用户的密码（带客户端 IP，支持防爆破锁定）。
+     */
+    void changePassword(ChangePasswordDTO dto, String clientIp);
+
+    /**
      * 用户公开信息（仅 id / username / nickname / avatarUrl）。
      * <p>
      * 这个接口的 id 是别人可以随便猜的，所以只返回能公开的字段。

@@ -32,3 +32,4 @@ mindforge:
     purge-cron: "-"
   task:
     refresh-token-cleanup-cron: "-"
+    data-archive-cron: "-"
