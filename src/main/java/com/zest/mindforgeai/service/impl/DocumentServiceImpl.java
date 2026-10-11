@@ -195,10 +195,9 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
                 .set(Document::getErrorMessage, null)
                 .set(Document::getUpdatedAt, LocalDateTime.now()));
 
-        // ⚠️ 待补：这里应该调用 Python 的 POST /internal/ai/v1/documents/parse
-        //    （文档 §十七）。AI 服务尚未搭建，所以目前只是把状态重置为 PENDING，
-        //    等 Python 接上后在这个位置补一次调用即可。
-        log.info("重试文档 documentId={} fileName={}，状态已重置为 PENDING（等待 AI 服务处理）",
+        // 重试 = 重置为 PENDING，由 Python AI 服务的轮询循环下一轮认领处理
+        // （claim 时会跳过非 PENDING 的文档，所以不用主动通知）。
+        log.info("重试文档 documentId={} fileName={}，状态已重置为 PENDING（等待 AI 服务认领）",
                 documentId, doc.getFileName());
 
         auditService.recordSuccess(AuditConstants.ACTION_DOCUMENT_RETRY,
