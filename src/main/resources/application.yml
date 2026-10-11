@@ -53,6 +53,13 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 mindforge:
+  # 高危操作告警（mindforge.alert.*）。
+  #   webhook-url   告警外推地址（企业微信 / 钉钉自定义机器人的 text 格式）。
+  #                 留空 = 只入库不外推；生产建议配置，否则又回到「没人主动看等于没有」。
+  #                 生产环境用环境变量注入：MINDFORGE_ALERT_WEBHOOK_URL
+  alert:
+    webhook-url: ${MINDFORGE_ALERT_WEBHOOK_URL:}
+
   # 限流与登录保护
   security:
     # 是否信任 X-Forwarded-For 头。

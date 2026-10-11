@@ -1,5 +1,7 @@
 package com.zest.mindforgeai.common.constant;
 
+import java.util.Set;
+
 /**
  * 审计日志常量：统一「动作 / 资源类型 / 结果」的取值，避免各处手写字符串。
  *
@@ -190,4 +192,33 @@ public final class AuditConstants {
     public static final String RESOURCE_INTERVIEW = "INTERVIEW";
     public static final String RESOURCE_RESUME_JOB_ANALYSIS = "RESUME_JOB_ANALYSIS";
     public static final String RESOURCE_PROMPT = "PROMPT";
+    public static final String RESOURCE_ALERT = "ALERT";
+
+    /* ---------- 高危操作 ---------- */
+
+    /**
+     * 会触发告警的高危操作。
+     * <p>
+     * 判断标准（对齐安全待办）：改一条就能影响「谁能干什么」或「AI 行为什么样」的操作。
+     * <p>
+     * ⚠️ 告警严格跟着审计走：审计里出现一条这里的 action（无论 result 是成功还是失败）
+     * 就生成一条告警。目前项目里 {@code recordFailure} 只用于 ACCESS_DENIED / 登录类 /
+     * 改密码失败，都不在清单里 —— 高危操作的参数校验失败在审计点之前就被 service 拦下，
+     * 不写审计、也就不告警（那是用户输入错误，不是发生过的高危操作）。
+     * <p>
+     * ⚠️ 刻意<b>不包含</b> {@link #ACTION_ACCESS_DENIED} 和登录失败：
+     * 它们可能是攻击探测，频率不可控，放进来会刷屏把真告警淹掉（告警疲劳）。
+     * 这两类在审计日志里按 action 过滤就能查，不缺留痕。
+     */
+    public static final Set<String> HIGH_RISK_ACTIONS = Set.of(
+            // 账号与角色：谁能登录、能干什么
+            ACTION_USER_ASSIGN_ROLE, ACTION_USER_CREATE, ACTION_USER_DELETE,
+            ACTION_ROLE_CREATE, ACTION_ROLE_UPDATE, ACTION_ROLE_DELETE, ACTION_ROLE_ASSIGN_PERMISSION,
+            // AI 配置：改模型 / 换 Key 直接改变 AI 行为（明细里绝不含 API Key）
+            ACTION_AI_CONFIG_CREATE, ACTION_AI_CONFIG_UPDATE, ACTION_AI_CONFIG_DELETE,
+            // 文档状态：管理端手工改状态能绕过处理流水线
+            ACTION_DOCUMENT_UPDATE,
+            // 提示词：立刻影响所有用户的 AI 输出
+            ACTION_PROMPT_CREATE, ACTION_PROMPT_UPDATE, ACTION_PROMPT_PUBLISH,
+            ACTION_PROMPT_ROLLBACK, ACTION_PROMPT_DELETE);
 }

@@ -27,7 +27,7 @@
 #
 # 【跑完怎么验证】
 #   mysql -uroot -p -e "SELECT COUNT(*) FROM information_schema.TABLES
-#                       WHERE TABLE_SCHEMA='mindforge_test'"   # 应该是 24
+#                       WHERE TABLE_SCHEMA='mindforge_test'"   # 应该是 26
 #
 set -euo pipefail
 
@@ -87,4 +87,4 @@ else
 fi
 
 TABLES="$("${MYSQL[@]}" -N -B -e "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$TEST_DB';" | tr -d '\r')"
-echo "==> 完成：$TEST_DB 共 $TABLES 张表（期望 24）"
+echo "==> 完成：$TEST_DB 共 $TABLES 张表（期望 26）"

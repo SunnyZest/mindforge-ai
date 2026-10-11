@@ -13,6 +13,7 @@ import com.zest.mindforgeai.pojo.entity.SysAuditLog;
 import com.zest.mindforgeai.pojo.vo.AuditLogVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.security.LoginUser;
+import com.zest.mindforgeai.service.AlertService;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import jakarta.servlet.http.HttpServletRequest;
@@ -56,9 +57,11 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
             "createdAt", SysAuditLog::getCreatedAt);
 
     private final ObjectMapper objectMapper;
+    private final AlertService alertService;
 
-    public AuditServiceImpl(ObjectMapper objectMapper) {
+    public AuditServiceImpl(ObjectMapper objectMapper, AlertService alertService) {
         this.objectMapper = objectMapper;
+        this.alertService = alertService;
     }
 
     /**
@@ -101,6 +104,13 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
             fillRequestInfo(audit);
 
             save(audit);
+
+            // 高危操作顺手生成告警（成功和失败都告 —— 失败往往更可疑）。
+            // createFromAudit 内部吞掉自己的异常，这里不 try-catch 也不会影响审计事务。
+            if (AuditConstants.HIGH_RISK_ACTIONS.contains(action)) {
+                alertService.createFromAudit(userId, action, resourceType, resourceId,
+                        audit.getRequestId(), success, audit.getDetailJson());
+            }
         } catch (Exception e) {
             // 审计是旁路能力，绝不能因为写审计失败而中断主流程
             log.error("写审计日志失败 action={} resourceType={} resourceId={}",
