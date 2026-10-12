@@ -98,7 +98,8 @@ public class ConversationServiceImpl extends ServiceImpl<ConversationMapper, Con
 
         auditService.recordSuccess(AuditConstants.ACTION_CONVERSATION_CREATE,
                 AuditConstants.RESOURCE_CONVERSATION, String.valueOf(conversation.getId()),
-                Map.of("title", conversation.getTitle(), "knowledgeBaseId", kbId));
+                Map.of("title", conversation.getTitle(),
+                       "knowledgeBaseId", kbId == null ? "NONE" : String.valueOf(kbId)));
 
         return ConversationVO.of(conversation, 0L);
     }

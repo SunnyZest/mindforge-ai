@@ -283,11 +283,7 @@ public class ChatServiceImpl implements ChatService {
      * 迟早出现「同步报 409、流式却已经开始调模型了」这种差异，很难查。
      */
     private Conversation requireChattable(Long conversationId) {
-        Conversation conversation = conversationService.requireOwned(conversationId);
-        if (conversation.getKnowledgeBaseId() == null) {
-            throw new BizException(ErrorCode.STATUS_CONFLICT, "该会话没有关联知识库，无法提问");
-        }
-        return conversation;
+        return conversationService.requireOwned(conversationId);
     }
 
     private Long saveMessage(Long conversationId, Long userId, String role,
