@@ -38,6 +38,16 @@ public interface FileService extends IService<SysFile> {
      */
     SysFile upload(MultipartFile file, String bizType);
 
+    /**
+     * 上传字节数组内容：写入对象存储 + 落 {@code sys_file} 记录（含秒传）。
+     *
+     * @param content          文件字节内容
+     * @param originalFilename 原始文件名（含扩展名）
+     * @param contentType      MIME 类型
+     * @param bizType          业务类型
+     */
+    SysFile uploadBytes(byte[] content, String originalFilename, String contentType, String bizType);
+
     /** 按 id 取文件并校验归属（不存在 → 40402，不是自己的 → 40302） */
     SysFile getOwned(Long fileId);
 

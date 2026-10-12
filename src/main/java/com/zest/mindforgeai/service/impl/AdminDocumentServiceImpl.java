@@ -3,14 +3,18 @@ package com.zest.mindforgeai.service.impl;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.zest.mindforgeai.client.AiServiceClient;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.StorageProperties;
 import com.zest.mindforgeai.mapper.DocumentMapper;
+import com.zest.mindforgeai.mapper.KnowledgeBaseMapper;
 import com.zest.mindforgeai.pojo.dto.DocumentStatusUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.Document;
+import com.zest.mindforgeai.pojo.entity.KnowledgeBase;
 import com.zest.mindforgeai.pojo.entity.SysFile;
 import com.zest.mindforgeai.pojo.vo.AdminDocumentVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
@@ -22,6 +26,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.nio.charset.StandardCharsets;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -72,18 +79,24 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
             "updatedAt", "d.updated_at");
 
     private final DocumentMapper documentMapper;
+    private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final FileService fileService;
     private final AuditService auditService;
     private final StorageProperties storageProperties;
+    private final AiServiceClient aiServiceClient;
 
     public AdminDocumentServiceImpl(DocumentMapper documentMapper,
+                                    KnowledgeBaseMapper knowledgeBaseMapper,
                                     FileService fileService,
                                     AuditService auditService,
-                                    StorageProperties storageProperties) {
+                                    StorageProperties storageProperties,
+                                    AiServiceClient aiServiceClient) {
         this.documentMapper = documentMapper;
+        this.knowledgeBaseMapper = knowledgeBaseMapper;
         this.fileService = fileService;
         this.auditService = auditService;
         this.storageProperties = storageProperties;
+        this.aiServiceClient = aiServiceClient;
     }
 
     @Override
@@ -114,6 +127,118 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
         }
         fillAggregateStatus(vo);
         return vo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AdminDocumentVO upload(Long knowledgeBaseId, MultipartFile file, String description) {
+        KnowledgeBase kb = knowledgeBaseMapper.selectById(knowledgeBaseId);
+        if (kb == null) {
+            throw new BizException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND);
+        }
+
+        String originalName = file.getOriginalFilename();
+        if (!StringUtils.hasText(originalName)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "文件名不能为空");
+        }
+        String ext = UploadConstants.extensionOf(originalName);
+        if (!UploadConstants.isAllowed(originalName, UploadConstants.DOCUMENT_EXT)) {
+            throw new BizException(ErrorCode.FILE_TYPE_UNSUPPORTED,
+                    "只支持 PDF / DOCX / TXT / Markdown / HTML");
+        }
+
+        SysFile sysFile = fileService.upload(file, FileService.BIZ_DOCUMENT);
+
+        Document doc = new Document()
+                .setUserId(kb.getUserId())
+                .setKnowledgeBaseId(knowledgeBaseId)
+                .setFileId(sysFile.getId())
+                .setFileName(originalName)
+                .setFileType(ext.toUpperCase())
+                .setFileUrl(sysFile.getObjectKey())
+                .setFileSize(sysFile.getFileSize())
+                .setContentHash(sysFile.getContentHash())
+                .setParseStatus(DocumentStatusUtils.PENDING)
+                .setChunkStatus(DocumentStatusUtils.PENDING)
+                .setVectorStatus(DocumentStatusUtils.PENDING);
+        documentMapper.insert(doc);
+
+        log.info("管理端上传文档成功 documentId={} kbId={} fileName={} size={}",
+                doc.getId(), knowledgeBaseId, originalName, sysFile.getFileSize());
+
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("knowledgeBaseId", knowledgeBaseId);
+        detail.put("fileName", originalName);
+        detail.put("fileSize", sysFile.getFileSize());
+        detail.put("description", description == null ? "" : description);
+        detail.put("byAdmin", true);
+
+        auditService.recordSuccess(AuditConstants.ACTION_DOCUMENT_UPLOAD,
+                AuditConstants.RESOURCE_DOCUMENT, String.valueOf(doc.getId()), detail);
+
+        return getDetail(doc.getId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AdminDocumentVO importUrl(Long knowledgeBaseId, String url) {
+        if (!StringUtils.hasText(url) || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "URL 格式不合法，必须以 http:// 或 https:// 开头");
+        }
+
+        KnowledgeBase kb = knowledgeBaseMapper.selectById(knowledgeBaseId);
+        if (kb == null) {
+            throw new BizException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND);
+        }
+
+        log.info("管理端开始抓取网页导入知识库 kbId={} url={}", knowledgeBaseId, url);
+        AiServiceClient.UrlExtractData extractData = aiServiceClient.extractUrl(url);
+        if (extractData == null || !StringUtils.hasText(extractData.content())) {
+            throw new BizException(ErrorCode.SYSTEM_ERROR, "未能从指定 URL 提取到有效正文");
+        }
+
+        String rawTitle = StringUtils.hasText(extractData.title()) ? extractData.title().trim() : "web_article";
+        String cleanTitle = rawTitle.replaceAll("[\\\\/:*?\"<>|]", "_");
+        if (cleanTitle.length() > 80) {
+            cleanTitle = cleanTitle.substring(0, 80);
+        }
+        String fileName = cleanTitle + ".md";
+
+        String mdContent = String.format("# %s\n\n> 来源网页: %s\n\n%s\n",
+                rawTitle, url.trim(), extractData.content());
+        byte[] bytes = mdContent.getBytes(StandardCharsets.UTF_8);
+
+        SysFile sysFile = fileService.uploadBytes(bytes, fileName, "text/markdown;charset=UTF-8", FileService.BIZ_DOCUMENT);
+
+        Document doc = new Document()
+                .setUserId(kb.getUserId())
+                .setKnowledgeBaseId(knowledgeBaseId)
+                .setFileId(sysFile.getId())
+                .setFileName(fileName)
+                .setFileType("MD")
+                .setFileUrl(sysFile.getObjectKey())
+                .setFileSize(sysFile.getFileSize())
+                .setContentHash(sysFile.getContentHash())
+                .setParseStatus(DocumentStatusUtils.PENDING)
+                .setChunkStatus(DocumentStatusUtils.PENDING)
+                .setVectorStatus(DocumentStatusUtils.PENDING);
+        documentMapper.insert(doc);
+
+        log.info("管理端网页导入文档成功 documentId={} kbId={} fileName={} charCount={}",
+                doc.getId(), knowledgeBaseId, fileName, extractData.charCount());
+
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("knowledgeBaseId", knowledgeBaseId);
+        detail.put("url", url);
+        detail.put("fileName", fileName);
+        detail.put("fileSize", sysFile.getFileSize());
+        detail.put("charCount", extractData.charCount());
+        detail.put("byAdmin", true);
+
+        auditService.recordSuccess(AuditConstants.ACTION_DOCUMENT_UPLOAD,
+                AuditConstants.RESOURCE_DOCUMENT, String.valueOf(doc.getId()), detail);
+
+        return getDetail(doc.getId());
     }
 
     @Override

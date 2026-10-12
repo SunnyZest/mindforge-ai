@@ -31,6 +31,16 @@ public interface AdminKnowledgeService {
     AdminKnowledgeBaseVO getDetail(Long id);
 
     /**
+     * 创建官方/管理员知识库。
+     */
+    AdminKnowledgeBaseVO createKnowledgeBase(com.zest.mindforgeai.pojo.dto.KnowledgeBaseCreateDTO dto);
+
+    /**
+     * 更新知识库信息。
+     */
+    void updateKnowledgeBase(Long id, com.zest.mindforgeai.pojo.dto.KnowledgeBaseUpdateDTO dto);
+
+    /**
      * 删除知识库（级联逻辑删除其下文档与对话）。
      * <p>
      * 与用户端删自己的库走同一套级联规则（{@link KnowledgeBaseCascadeService}）。

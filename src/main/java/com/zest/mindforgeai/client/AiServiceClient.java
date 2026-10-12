@@ -76,6 +76,7 @@ public class AiServiceClient {
     private static final String PATH_INTERVIEW_GENERATE = "/internal/ai/v1/interviews/generate";
     private static final String PATH_INTERVIEW_ANALYZE = "/internal/ai/v1/interviews/analyze";
     private static final String PATH_INTERVIEW_REPORT = "/internal/ai/v1/interviews/report";
+    private static final String PATH_URL_EXTRACT = "/internal/ai/v1/tools/url-extract";
 
     /** SSE 里数据行的前缀（Python 侧格式是 {@code data: {json}}） */
     private static final String SSE_DATA_PREFIX = "data:";
@@ -360,6 +361,16 @@ public class AiServiceClient {
      */
     public InterviewReportData buildReport(InterviewReportRequest request) {
         AiEnvelope<InterviewReportData> envelope = post(PATH_INTERVIEW_REPORT, request,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
+    /**
+     * 网页正文提取（基于 Python 原生 trafilatura 工具）。
+     */
+    public UrlExtractData extractUrl(String url) {
+        AiEnvelope<UrlExtractData> envelope = post(PATH_URL_EXTRACT, new UrlExtractRequest(url),
                 new ParameterizedTypeReference<>() {
                 });
         return envelope.data();
@@ -845,5 +856,13 @@ public class AiServiceClient {
                                       List<String> weaknesses,
                                       List<String> suggestions,
                                       String reportText) {
+    }
+
+    // ---------- 网页正文提取工具 ----------
+    public record UrlExtractRequest(String url) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record UrlExtractData(String url, String title, String content, Integer charCount) {
     }
 }

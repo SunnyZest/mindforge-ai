@@ -1,16 +1,22 @@
 package com.zest.mindforgeai.controller.admin;
 
 import com.zest.mindforgeai.common.result.Result;
+import com.zest.mindforgeai.pojo.dto.KnowledgeBaseCreateDTO;
+import com.zest.mindforgeai.pojo.dto.KnowledgeBaseUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.AdminKnowledgeBaseVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.service.AdminKnowledgeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -64,6 +70,21 @@ public class AdminKnowledgeBaseController {
     @PreAuthorize("hasAuthority('admin:knowledge:list')")
     public Result<AdminKnowledgeBaseVO> detail(@PathVariable Long id) {
         return Result.success(adminKnowledgeService.getDetail(id));
+    }
+
+    @Operation(summary = "创建官方/管理员知识库")
+    @PostMapping
+    @PreAuthorize("hasAuthority('admin:knowledge:list') or hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public Result<AdminKnowledgeBaseVO> create(@Valid @RequestBody KnowledgeBaseCreateDTO dto) {
+        return Result.success(adminKnowledgeService.createKnowledgeBase(dto));
+    }
+
+    @Operation(summary = "修改知识库")
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('admin:knowledge:list') or hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public Result<Void> update(@PathVariable Long id, @Valid @RequestBody KnowledgeBaseUpdateDTO dto) {
+        adminKnowledgeService.updateKnowledgeBase(id, dto);
+        return Result.success();
     }
 
     /**

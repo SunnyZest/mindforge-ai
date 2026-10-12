@@ -31,6 +31,16 @@ public interface AdminDocumentService {
     AdminDocumentVO getDetail(Long id);
 
     /**
+     * 管理端上传文档到知识库。
+     */
+    AdminDocumentVO upload(Long knowledgeBaseId, org.springframework.web.multipart.MultipartFile file, String description);
+
+    /**
+     * 管理端通过网页 URL 提取正文并导入知识库（生成 Markdown 文档）。
+     */
+    AdminDocumentVO importUrl(Long knowledgeBaseId, String url);
+
+    /**
      * 手工修改文档处理状态。
      * <p>
      * 运维用途：文档卡在某个状态（比如 Python 崩了没回写）时人工纠正。

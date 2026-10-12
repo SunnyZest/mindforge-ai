@@ -3,6 +3,7 @@ package com.zest.mindforgeai.controller.admin;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.BatchIdsDTO;
 import com.zest.mindforgeai.pojo.dto.DocumentStatusUpdateDTO;
+import com.zest.mindforgeai.pojo.dto.ImportUrlDTO;
 import com.zest.mindforgeai.pojo.vo.AdminDocumentVO;
 import com.zest.mindforgeai.pojo.vo.ChunkVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
@@ -21,7 +22,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 管理端文档，路径对齐文档 §二十四。
@@ -68,6 +71,23 @@ public class AdminDocumentController {
     @PreAuthorize("hasAuthority('admin:document:list')")
     public Result<AdminDocumentVO> detail(@PathVariable Long id) {
         return Result.success(adminDocumentService.getDetail(id));
+    }
+
+    @Operation(summary = "管理端上传文档到知识库")
+    @PostMapping("/knowledge-bases/{knowledgeBaseId}/documents/upload")
+    @PreAuthorize("hasAuthority('admin:document:list') or hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public Result<AdminDocumentVO> upload(@PathVariable Long knowledgeBaseId,
+                                          @RequestPart("file") MultipartFile file,
+                                          @RequestParam(required = false) String description) {
+        return Result.success(adminDocumentService.upload(knowledgeBaseId, file, description));
+    }
+
+    @Operation(summary = "管理端通过网页 URL 导入文档")
+    @PostMapping("/knowledge-bases/{knowledgeBaseId}/documents/import-url")
+    @PreAuthorize("hasAuthority('admin:document:list') or hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public Result<AdminDocumentVO> importUrl(@PathVariable Long knowledgeBaseId,
+                                             @Valid @RequestBody ImportUrlDTO dto) {
+        return Result.success(adminDocumentService.importUrl(knowledgeBaseId, dto.getUrl()));
     }
 
     /**

@@ -49,8 +49,6 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
     @Override
     @Transactional(rollbackFor = Exception.class)
     public SysFile upload(MultipartFile file, String bizType) {
-        Long userId = SecurityUtils.getUserId();
-
         byte[] content;
         try {
             content = file.getBytes();
@@ -58,12 +56,20 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
             log.error("读取上传文件失败", e);
             throw new BizException(ErrorCode.SYSTEM_ERROR, "读取上传文件失败");
         }
-
-        // 相同内容得到的hash值相同
-        String hash = HashUtils.sha256Hex(content);
         String originalName = StringUtils.hasText(file.getOriginalFilename())
                 ? file.getOriginalFilename()
                 : "unnamed";
+        return uploadBytes(content, originalName, file.getContentType(), bizType);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public SysFile uploadBytes(byte[] content, String originalName, String contentType, String bizType) {
+        Long userId = SecurityUtils.getUserId();
+        String hash = HashUtils.sha256Hex(content);
+        if (!StringUtils.hasText(originalName)) {
+            originalName = "unnamed";
+        }
 
         // 秒传：同一用户传过相同内容 → 复用已有对象，不再上传一遍。
         // 注意是「复用对象 + 新建记录」：不同业务（文档/简历）可能引用同一份内容，
@@ -79,19 +85,17 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
                     userId, hash, existing.getObjectKey());
             return saveRecord(userId, originalName, existing.getObjectKey(),
                     existing.getBucketName(), existing.getStorageType(),
-                    file.getContentType(), content.length, hash, bizType);
+                    contentType, content.length, hash, bizType);
         }
 
         // 文件未上传
         String objectKey = buildObjectKey(bizType, userId, originalName);
-        // 上传到阿里OSS
-        StoredFileVO stored = storageService.upload(objectKey, content, file.getContentType());
+        StoredFileVO stored = storageService.upload(objectKey, content, contentType);
 
         log.info("文件上传成功 userId={} objectKey={} size={}", userId, objectKey, stored.getSize());
 
-        // 返回文件信息
         return saveRecord(userId, originalName, stored.getObjectKey(), stored.getBucketName(),
-                stored.getStorageType(), file.getContentType(), stored.getSize(), hash, bizType);
+                stored.getStorageType(), contentType, stored.getSize(), hash, bizType);
     }
 
     @Override

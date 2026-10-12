@@ -7,14 +7,20 @@ import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.KnowledgeBaseMapper;
+import com.zest.mindforgeai.pojo.entity.KnowledgeBase;
+import com.zest.mindforgeai.pojo.dto.KnowledgeBaseCreateDTO;
+import com.zest.mindforgeai.pojo.dto.KnowledgeBaseUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.AdminKnowledgeBaseVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.service.AdminKnowledgeService;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.KnowledgeBaseCascadeService;
+import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -73,6 +79,52 @@ public class AdminKnowledgeServiceImpl implements AdminKnowledgeService {
     @Override
     public AdminKnowledgeBaseVO getDetail(Long id) {
         return requireExists(id);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AdminKnowledgeBaseVO createKnowledgeBase(KnowledgeBaseCreateDTO dto) {
+        Long userId = SecurityUtils.getUserId();
+        KnowledgeBase kb = new KnowledgeBase()
+                .setUserId(userId)
+                .setName(dto.getName())
+                .setDescription(dto.getDescription())
+                .setStatus(1)
+                .setDocumentCount(0);
+        knowledgeBaseMapper.insert(kb);
+
+        log.info("管理员创建知识库 id={} name={} adminId={}", kb.getId(), kb.getName(), userId);
+        auditService.recordSuccess(AuditConstants.ACTION_KB_CREATE,
+                AuditConstants.RESOURCE_KNOWLEDGE_BASE, String.valueOf(kb.getId()),
+                Map.of("name", kb.getName(), "byAdmin", true));
+
+        return requireExists(kb.getId());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateKnowledgeBase(Long id, KnowledgeBaseUpdateDTO dto) {
+        AdminKnowledgeBaseVO kb = requireExists(id);
+
+        KnowledgeBase updateEntity = new KnowledgeBase()
+                .setId(id)
+                .setName(dto.getName())
+                .setDescription(dto.getDescription())
+                .setStatus(dto.getStatus())
+                .setUpdatedAt(LocalDateTime.now());
+        knowledgeBaseMapper.updateById(updateEntity);
+
+        log.info("管理员更新知识库 id={} name={}", id, dto.getName());
+
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("beforeName", kb.getName());
+        detail.put("afterName", dto.getName());
+        detail.put("beforeStatus", kb.getStatus());
+        detail.put("afterStatus", dto.getStatus());
+        detail.put("byAdmin", true);
+
+        auditService.recordSuccess(AuditConstants.ACTION_KB_UPDATE,
+                AuditConstants.RESOURCE_KNOWLEDGE_BASE, String.valueOf(id), detail);
     }
 
     @Override
