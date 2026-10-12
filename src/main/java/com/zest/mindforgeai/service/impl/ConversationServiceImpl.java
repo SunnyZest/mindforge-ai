@@ -30,6 +30,7 @@ import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -77,10 +78,14 @@ public class ConversationServiceImpl extends ServiceImpl<ConversationMapper, Con
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ConversationVO create(CreateConversationDTO dto) {
-        // 知识库必须存在且属于当前用户 —— 借 KnowledgeBaseService 的归属校验，
-        // 不自己写一遍（否则两处逻辑容易走偏）
-        Long kbId = Long.valueOf(dto.getKnowledgeBaseId());
-        knowledgeBaseService.getOwned(kbId);
+        // 若指定了知识库，必须存在且属于当前用户；若未指定则作为通用 AI 会话
+        Long kbId = null;
+        if (StringUtils.hasText(dto.getKnowledgeBaseId())
+                && !"0".equals(dto.getKnowledgeBaseId().trim())
+                && !"null".equalsIgnoreCase(dto.getKnowledgeBaseId().trim())) {
+            kbId = Long.valueOf(dto.getKnowledgeBaseId().trim());
+            knowledgeBaseService.getOwned(kbId);
+        }
 
         Conversation conversation = new Conversation()
                 .setUserId(SecurityUtils.getUserId())

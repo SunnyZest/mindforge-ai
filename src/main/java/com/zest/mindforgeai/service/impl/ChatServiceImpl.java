@@ -110,7 +110,7 @@ public class ChatServiceImpl implements ChatService {
         // ③ 调 AI 服务 —— 这一步不占数据库事务
         AiServiceClient.ChatData data = aiClient.chat(new AiServiceClient.ChatRequest(
                 String.valueOf(userId),
-                String.valueOf(kbId),
+                kbId == null ? null : String.valueOf(kbId),
                 String.valueOf(conversationId),
                 dto.getMessage(),
                 dto.getTopK(),
@@ -166,7 +166,7 @@ public class ChatServiceImpl implements ChatService {
 
         aiClient.chatStream(new AiServiceClient.ChatRequest(
                 String.valueOf(userId),
-                String.valueOf(kbId),
+                kbId == null ? null : String.valueOf(kbId),
                 String.valueOf(conversationId),
                 dto.getMessage(),
                 dto.getTopK(),

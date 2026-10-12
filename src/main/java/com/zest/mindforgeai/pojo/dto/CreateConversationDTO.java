@@ -15,8 +15,7 @@ import lombok.Data;
 @Data
 public class CreateConversationDTO {
 
-    @Schema(description = "关联的知识库 id")
-    @NotBlank(message = "知识库 id 不能为空")
+    @Schema(description = "关联的知识库 id（可选，为空表示通用 AI 对话）")
     private String knowledgeBaseId;
 
     @Schema(description = "会话标题")
