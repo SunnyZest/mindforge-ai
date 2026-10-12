@@ -87,7 +87,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
 
     @Override
     public KnowledgeBaseVO getDetail(Long id) {
-        return KnowledgeBaseVO.of(requireOwned(id));
+        return KnowledgeBaseVO.of(requireAccessible(id));
     }
 
     @Override
@@ -98,6 +98,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
                 .setName(dto.getName())
                 .setDescription(dto.getDescription())
                 .setStatus(1)
+                .setIsSystem(0)
                 .setDocumentCount(0);
         save(kb);
 
@@ -114,6 +115,9 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     public void update(Long id, KnowledgeBaseUpdateDTO dto) {
         // 先根据id查询到对应知识库，主要是审计用
         KnowledgeBase kb = requireOwned(id);
+        if (Integer.valueOf(1).equals(kb.getIsSystem())) {
+            throw new BizException(ErrorCode.FORBIDDEN, "官方智库由系统维护，普通用户无权修改");
+        }
 
         // MP 默认策略：null 字段不进 UPDATE → 天然支持局部更新
         updateById(new KnowledgeBase()
@@ -139,6 +143,9 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         KnowledgeBase kb = requireOwned(id);
+        if (Integer.valueOf(1).equals(kb.getIsSystem())) {
+            throw new BizException(ErrorCode.FORBIDDEN, "官方智库由系统维护，普通用户无权删除");
+        }
 
         // 级联清理交给共享组件 —— 管理端删别人的库走的是同一套规则，
         // 两边各写一遍的话，将来加关联表时很容易只改一处，留下孤儿数据。
@@ -155,7 +162,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
 
     @Override
     public KnowledgeBaseStatsVO getStats(Long id) {
-        requireOwned(id);
+        requireAccessible(id);
         return baseMapper.selectStats(id);
     }
 
@@ -164,7 +171,26 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
         return requireOwned(id);
     }
 
+    @Override
+    public KnowledgeBase getAccessible(Long id) {
+        return requireAccessible(id);
+    }
+
     /* ---------- 内部工具 ---------- */
+
+    /**
+     * 校验知识库访问权限：本人私有库 或 官方全局共享库。
+     */
+    private KnowledgeBase requireAccessible(Long id) {
+        KnowledgeBase kb = getById(id);
+        if (kb == null) {
+            throw new BizException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND);
+        }
+        if (kb.getUserId().equals(SecurityUtils.getUserId()) || Integer.valueOf(1).equals(kb.getIsSystem())) {
+            return kb;
+        }
+        throw new BizException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND);
+    }
 
     /**
      * 取知识库并校验归属。

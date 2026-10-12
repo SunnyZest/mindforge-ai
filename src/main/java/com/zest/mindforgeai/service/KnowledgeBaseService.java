@@ -46,4 +46,11 @@ public interface KnowledgeBaseService extends IService<KnowledgeBase> {
      * 不存在 → 40403；存在但不属于当前用户 → 40302。
      */
     KnowledgeBase getOwned(Long id);
+
+    /**
+     * 取知识库并校验访问权限（本人私有库 或 官方全局共享库）。
+     * <p>
+     * 不存在或无权访问 → 40403。
+     */
+    KnowledgeBase getAccessible(Long id);
 }

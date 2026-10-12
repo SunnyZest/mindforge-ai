@@ -51,6 +51,9 @@ public class KnowledgeBase implements Serializable {
     @Schema(description = "更新时间")
     private LocalDateTime updatedAt;
 
+    @Schema(description = "是否系统官方全局智库：0 否 / 1 是")
+    private Integer isSystem;
+
     @Schema(description = "逻辑删除：0 未删除 / 1 已删除")
     private Integer deleted;
 }

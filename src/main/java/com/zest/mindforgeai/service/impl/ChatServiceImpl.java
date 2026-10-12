@@ -223,9 +223,9 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public RagSearchVO search(RagSearchDTO dto) {
-        // 校验知识库归属 —— 不校验的话传别人的 kbId 就能检索别人的资料
+        // 校验知识库访问权限（本人私有库 或 官方全局智库）
         Long kbId = Long.valueOf(dto.getKnowledgeBaseId());
-        knowledgeBaseService.getOwned(kbId);
+        knowledgeBaseService.getAccessible(kbId);
 
         AiServiceClient.SearchData data = aiClient.search(new AiServiceClient.SearchRequest(
                 String.valueOf(SecurityUtils.getUserId()),

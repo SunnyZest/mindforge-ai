@@ -90,6 +90,7 @@ public class AdminKnowledgeServiceImpl implements AdminKnowledgeService {
                 .setName(dto.getName())
                 .setDescription(dto.getDescription())
                 .setStatus(1)
+                .setIsSystem(1)
                 .setDocumentCount(0);
         knowledgeBaseMapper.insert(kb);
 

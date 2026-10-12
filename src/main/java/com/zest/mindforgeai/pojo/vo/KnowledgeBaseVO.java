@@ -34,6 +34,9 @@ public class KnowledgeBaseVO {
     @Schema(description = "创建时间")
     private LocalDateTime createdAt;
 
+    @Schema(description = "是否系统官方全局智库：0 否 / 1 是")
+    private Integer isSystem;
+
     @Schema(description = "更新时间")
     private LocalDateTime updatedAt;
 
@@ -44,6 +47,7 @@ public class KnowledgeBaseVO {
         vo.setDescription(kb.getDescription());
         vo.setStatus(kb.getStatus());
         vo.setDocumentCount(kb.getDocumentCount());
+        vo.setIsSystem(kb.getIsSystem());
         vo.setCreatedAt(kb.getCreatedAt());
         vo.setUpdatedAt(kb.getUpdatedAt());
         return vo;

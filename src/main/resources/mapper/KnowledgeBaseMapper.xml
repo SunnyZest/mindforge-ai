@@ -23,6 +23,7 @@
                kb.name,
                kb.description,
                kb.status,
+               kb.is_system,
                (SELECT COUNT(*)
                   FROM document d
                  WHERE d.knowledge_base_id = kb.id
@@ -32,7 +33,7 @@
                kb.deleted
         FROM knowledge_base kb
         WHERE kb.deleted = 0
-          AND kb.user_id = #{userId}
+          AND (kb.user_id = #{userId} OR kb.is_system = 1)
         <if test="status != null">
           AND kb.status = #{status}
         </if>
@@ -65,6 +66,7 @@
         kb.name,
         kb.description,
         kb.status,
+        kb.is_system    AS isSystem,
         (SELECT COUNT(*)
            FROM document d
           WHERE d.knowledge_base_id = kb.id

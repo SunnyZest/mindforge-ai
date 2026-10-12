@@ -43,11 +43,14 @@ public class ChunkServiceImpl implements ChunkService {
 
     private final DocumentChunkMapper chunkMapper;
     private final DocumentMapper documentMapper;
+    private final com.zest.mindforgeai.mapper.KnowledgeBaseMapper knowledgeBaseMapper;
 
     public ChunkServiceImpl(DocumentChunkMapper chunkMapper,
-                            DocumentMapper documentMapper) {
+                            DocumentMapper documentMapper,
+                            com.zest.mindforgeai.mapper.KnowledgeBaseMapper knowledgeBaseMapper) {
         this.chunkMapper = chunkMapper;
         this.documentMapper = documentMapper;
+        this.knowledgeBaseMapper = knowledgeBaseMapper;
     }
 
     @Override
@@ -57,18 +60,14 @@ public class ChunkServiceImpl implements ChunkService {
             throw new BizException(ErrorCode.CHUNK_NOT_FOUND);
         }
 
-        // ★ 归属校验
-        //
-        // 分块 id 是连续自增的数字，不校验的话用户把 URL 里的数字改一改，
-        // 就能看到别人文档的内容。
-        //
-        // ⚠️ 校验失败时刻意抛「不存在」而不是「无权访问」：
-        //    返回 403 等于告诉调用方「这个 id 是存在的，只是不归你」，
-        //    相当于帮他确认了别人的数据范围。返回 404 什么都不泄漏。
+        // ★ 访问权限校验：本人拥有 或 属于官方全局智库
         if (!Objects.equals(chunk.getUserId(), SecurityUtils.getUserId())) {
-            log.warn("用户 {} 试图访问不属于自己的分块 {}（属于用户 {}）",
-                    SecurityUtils.getUserId(), chunkId, chunk.getUserId());
-            throw new BizException(ErrorCode.CHUNK_NOT_FOUND);
+            com.zest.mindforgeai.pojo.entity.KnowledgeBase kb = knowledgeBaseMapper.selectById(chunk.getKnowledgeBaseId());
+            if (kb == null || !Integer.valueOf(1).equals(kb.getIsSystem())) {
+                log.warn("用户 {} 试图访问不属于自己的分块 {}（属于用户 {}）",
+                        SecurityUtils.getUserId(), chunkId, chunk.getUserId());
+                throw new BizException(ErrorCode.CHUNK_NOT_FOUND);
+            }
         }
 
         // 所属文档也要在（逻辑删除的文档，MP 的 selectById 会自动过滤掉）。

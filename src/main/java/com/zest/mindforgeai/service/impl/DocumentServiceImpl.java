@@ -77,6 +77,9 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         // ① 校验知识库归属 —— 不校验的话，任何人都能往别人的知识库里塞文档
         // 会检验是否与当前登录用户userId一致
         KnowledgeBase kb = knowledgeBaseService.getOwned(knowledgeBaseId);
+        if (Integer.valueOf(1).equals(kb.getIsSystem())) {
+            throw new BizException(ErrorCode.FORBIDDEN, "官方智库由系统维护，普通用户无权上传文档");
+        }
 
         // ② 校验文件名与类型
         String originalName = file.getOriginalFilename();
@@ -130,8 +133,8 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     public PageResultVO<DocumentVO> pageDocuments(Long knowledgeBaseId, long page, long pageSize,
                                                   String keyword,
                                                   String sortBy, String sortOrder) {
-        // 先校验知识库归属 —— 不是你的库，就看不到里面的文档
-        knowledgeBaseService.getOwned(knowledgeBaseId);
+        // 先校验知识库访问权限（本人私有库 或 官方全局智库）
+        knowledgeBaseService.getAccessible(knowledgeBaseId);
 
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
@@ -150,12 +153,12 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
     @Override
     public DocumentVO getDetail(Long documentId) {
-        return toVO(getOwned(documentId));
+        return toVO(getAccessible(documentId));
     }
 
     @Override
     public DocumentStatusVO getStatus(Long documentId) {
-        Document d = getOwned(documentId);
+        Document d = getAccessible(documentId);
 
         DocumentStatusVO vo = new DocumentStatusVO();
         vo.setDocumentId(String.valueOf(d.getId()));
@@ -254,7 +257,7 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
     @Override
     public String downloadUrl(Long documentId) {
-        Document doc = getOwned(documentId);
+        Document doc = getAccessible(documentId);
         // 借 sys_file 的 objectKey 生成预签名 URL（document.file_url 存的也是它）
         SysFile sysFile = fileService.getById(doc.getFileId());
         if (sysFile == null) {
@@ -265,6 +268,24 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     }
 
     /* ---------- 内部工具 ---------- */
+
+    /**
+     * 校验文档访问权限：本人私有文档 或 所属知识库为官方全局智库。
+     */
+    private Document getAccessible(Long documentId) {
+        Document doc = getById(documentId);
+        if (doc == null) {
+            throw new BizException(ErrorCode.DOCUMENT_NOT_FOUND);
+        }
+        if (doc.getUserId().equals(SecurityUtils.getUserId())) {
+            return doc;
+        }
+        KnowledgeBase kb = knowledgeBaseService.getById(doc.getKnowledgeBaseId());
+        if (kb != null && Integer.valueOf(1).equals(kb.getIsSystem())) {
+            return doc;
+        }
+        throw new BizException(ErrorCode.DOCUMENT_NOT_FOUND);
+    }
 
     // 将Document对象转为DocumentVO对象
     private DocumentVO toVO(Document d) {

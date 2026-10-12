@@ -84,7 +84,7 @@ public class ConversationServiceImpl extends ServiceImpl<ConversationMapper, Con
                 && !"0".equals(dto.getKnowledgeBaseId().trim())
                 && !"null".equalsIgnoreCase(dto.getKnowledgeBaseId().trim())) {
             kbId = Long.valueOf(dto.getKnowledgeBaseId().trim());
-            knowledgeBaseService.getOwned(kbId);
+            knowledgeBaseService.getAccessible(kbId);
         }
 
         Conversation conversation = new Conversation()
