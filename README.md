@@ -156,10 +156,38 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
 
 ## 四、 本地开发与部署指引
 
-### 1. 环境依赖前置要求
+### 1. 代码拉取与工作区组织
+
+MindForge AI 由 **三个互相解耦的工程** 组成。克隆至本地时，推荐在同一父级工作目录（如 `mindforge-workspace`）下并列存放，便于各端相对路径配置文件及 Docker 挂载开箱即用：
+
+```bash
+# 创建并进入统一工作空间
+mkdir mindforge-workspace && cd mindforge-workspace
+
+# 1. 克隆 Java 业务后端
+git clone <java_repo_url> mindforge-ai
+
+# 2. 克隆 Python AI 微服务
+git clone <python_repo_url> mindforge-ai-service
+
+# 3. 克隆 Vue 3 前端 Monorepo
+git clone <frontend_repo_url> mindforge
+```
+
+本地推荐目录拓扑：
+```text
+mindforge-workspace/
+├── mindforge-ai/          # Java Spring Boot 业务主工程 (端口 8080)
+├── mindforge-ai-service/  # Python FastAPI AI 微服务 (端口 8000)
+└── mindforge/             # Vue 3 前端工程 (用户端 :5173 + 管理端 :5174)
+```
+
+---
+
+### 2. 环境依赖前置要求
 
 确保本机已安装以下基础环境：
-- **JDK**：`21` 及以上（推荐 OpenJDK 21 或 Temurin 21）
+- **JDK**：`21` 及以上（推荐 OpenJDK 21 或 Eclipse Temurin 21）
 - **Node.js**：`v20.10.0` 及以上（包管理器使用 `pnpm 9+`）
 - **Python**：`3.12` 及以上（推荐搭配 `uv` 或原生 `venv`）
 - **MySQL**：`8.0+`
@@ -167,14 +195,14 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
 
 ---
 
-### 2. 数据库与中间件初始化
+### 3. 数据库与中间件初始化
 
 1. 启动本地 MySQL 服务，创建主数据库：
    ```sql
    CREATE DATABASE mindforge DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
    ```
 2. 导入结构与种子初始化脚本：
-   - 导入根目录提供的 [`mindforge-schema.sql`](./mindforge-schema.sql) 文件；
+   - 导入 `mindforge-ai` 根目录提供的 [`mindforge-schema.sql`](./mindforge-schema.sql) 文件；
    - 脚本已内置系统预设角色（`USER`、`ADMIN`、`SUPER_ADMIN`）、权限项字典与预设测试账号：
      - **普通用户账号**：`zhangsan` / `test-123456`
      - **管理员账号**：`admin` / `admin123`（或使用测试用户 `t_admin` / `test-123456`）
@@ -182,11 +210,11 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
 
 ---
 
-### 3. 启动 Java 业务主服务
+### 4. 启动 Java 业务主服务
 
 1. 进入 Java 工程根目录：
    ```bash
-   cd d:\java_IDEA\maven_code\mindforge-ai
+   cd mindforge-ai
    ```
 2. 检查 `src/main/resources/application-dev.yml` 配置：
    - 确认 MySQL 连接用户名密码（默认 `root / 123456`）；
@@ -197,6 +225,9 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
    ```bash
    # Windows PowerShell
    .\mvnw.cmd spring-boot:run
+
+   # Linux / macOS
+   ./mvnw spring-boot:run
    ```
 4. 验证服务状态：
    - 后端启动在 **`http://localhost:8080/api`**；
@@ -204,11 +235,11 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
 
 ---
 
-### 4. 启动 Python AI 微服务
+### 5. 启动 Python AI 微服务
 
 1. 进入 Python 工程目录：
    ```bash
-   cd D:\pythoncode\mindforge-ai-service
+   cd mindforge-ai-service
    ```
 2. 配置虚拟环境并安装依赖：
    ```bash
@@ -216,9 +247,14 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
    uv venv --python 3.12
    uv sync
 
-   # 或者使用原生 pip
+   # 或者使用原生 pip (Windows)
    python -m venv .venv
    .\.venv\Scripts\activate
+   pip install -r requirements.txt
+
+   # 或者使用原生 pip (Linux / macOS)
+   python3 -m venv .venv
+   source .venv/bin/activate
    pip install -r requirements.txt
    ```
 3. 环境变量配置：
@@ -240,18 +276,22 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
      ```
 4. 启动微服务：
    ```bash
+   # Windows
    .venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+   # Linux / macOS
+   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 5. 验证通讯连通性：
    - 浏览器打开 `http://localhost:8000/health/java`，若返回 `{"status":"ok", ...}` 则表明已与 Java 成功握手。
 
 ---
 
-### 5. 启动 Vue 前端应用（一仓两端）
+### 6. 启动 Vue 前端应用（一仓两端）
 
 1. 进入前端 Monorepo 目录：
    ```bash
-   cd D:\Vue\mindforge
+   cd mindforge
    ```
 2. 启用 pnpm 并安装全部依赖：
    ```bash
@@ -337,7 +377,7 @@ flowchart LR
     P0 --> P1 --> P2
 ```
 
-详细功能说明与架构设计方案请参阅完整规划文档：[`ROADMAP.md`](file:///D:/Vue/mindforge/ROADMAP.md)。
+详细功能说明与架构设计方案请参阅完整规划文档：[`ROADMAP.md`](./ROADMAP.md)。
 
 ---
 

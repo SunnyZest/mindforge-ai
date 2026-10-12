@@ -154,7 +154,7 @@ services:
   # ----------------------------------------------------------------------------
   ai-service:
     build:
-      context: D:/pythoncode/mindforge-ai-service
+      context: ${AI_SERVICE_PATH:-../mindforge-ai-service}
       dockerfile: Dockerfile
     container_name: mindforge-ai-service
     restart: unless-stopped
@@ -170,7 +170,7 @@ services:
       TZ: Asia/Shanghai
     volumes:
       # 持久化嵌入向量数据库 ChromaDB
-      - D:/pythoncode/mindforge-ai-service/data/chroma:/app/data/chroma
+      - ${CHROMA_DATA_PATH:-../mindforge-ai-service/data/chroma}:/app/data/chroma
     ports:
       - "8000:8000"
     networks:
@@ -187,9 +187,9 @@ services:
       - "80:80"
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # 前端打包后的 dist 目录挂载
-      - D:/Vue/mindforge/apps/user/dist:/var/www/mindforge/user:ro
-      - D:/Vue/mindforge/apps/admin/dist:/var/www/mindforge/admin:ro
+      # 前端打包后的 dist 目录挂载（支持环境变量自定义路径，默认兼容同级工程结构）
+      - ${USER_DIST_PATH:-../mindforge/apps/user/dist}:/var/www/mindforge/user:ro
+      - ${ADMIN_DIST_PATH:-../mindforge/apps/admin/dist}:/var/www/mindforge/admin:ro
     depends_on:
       - mindforge-backend
     networks:
