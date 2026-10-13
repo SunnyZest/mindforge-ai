@@ -36,6 +36,7 @@ import com.zest.mindforgeai.pojo.vo.ResumeVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.FileService;
 import com.zest.mindforgeai.service.JobService;
+import com.zest.mindforgeai.service.KnowledgeBaseService;
 import com.zest.mindforgeai.service.ResumeService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -99,6 +100,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
     private final ResumeSkillMapper resumeSkillMapper;
     private final ResumeJobAnalysisMapper resumeJobAnalysisMapper;
     private final JobService jobService;
+    private final KnowledgeBaseService knowledgeBaseService;
     private final TransactionTemplate transactionTemplate;
 
     public ResumeServiceImpl(FileService fileService,
@@ -109,6 +111,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
                              ResumeSkillMapper resumeSkillMapper,
                              ResumeJobAnalysisMapper resumeJobAnalysisMapper,
                              JobService jobService,
+                             KnowledgeBaseService knowledgeBaseService,
                              TransactionTemplate transactionTemplate) {
         this.fileService = fileService;
         this.auditService = auditService;
@@ -118,6 +121,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
         this.resumeSkillMapper = resumeSkillMapper;
         this.resumeJobAnalysisMapper = resumeJobAnalysisMapper;
         this.jobService = jobService;
+        this.knowledgeBaseService = knowledgeBaseService;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -226,13 +230,15 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
 
         String target = normalizeTarget(dto == null ? null : dto.getTarget());
         String jobText = resolveJobText(dto == null ? null : dto.getJobId());
+        String systemKbIds = knowledgeBaseService.resolveDualTrackKbIds(null);
 
         ResumeAnalyzeData data = aiServiceClient.analyzeResume(new ResumeAnalyzeRequest(
                 String.valueOf(SecurityUtils.getUserId()),
                 String.valueOf(id),
                 resume.getRawContent(),
                 jobText,
-                target));
+                target,
+                systemKbIds));
 
         ResumeOptimizeVO vo = toOptimizeVO(id, data);
 

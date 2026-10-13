@@ -40,6 +40,7 @@ import com.zest.mindforgeai.pojo.vo.ResumeDetailVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.InterviewService;
 import com.zest.mindforgeai.service.JobService;
+import com.zest.mindforgeai.service.KnowledgeBaseService;
 import com.zest.mindforgeai.service.ResumeService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -102,6 +103,7 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
     private final ObjectMapper objectMapper;
     private final ResumeService resumeService;
     private final JobService jobService;
+    private final KnowledgeBaseService knowledgeBaseService;
     private final TransactionTemplate transactionTemplate;
 
     public InterviewServiceImpl(InterviewQuestionMapper questionMapper,
@@ -111,6 +113,7 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
                                 ObjectMapper objectMapper,
                                 ResumeService resumeService,
                                 JobService jobService,
+                                KnowledgeBaseService knowledgeBaseService,
                                 TransactionTemplate transactionTemplate) {
         this.questionMapper = questionMapper;
         this.reportMapper = reportMapper;
@@ -119,6 +122,7 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
         this.objectMapper = objectMapper;
         this.resumeService = resumeService;
         this.jobService = jobService;
+        this.knowledgeBaseService = knowledgeBaseService;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -246,6 +250,7 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
             // JD 没解析只是少一点针对性，不拦 —— 出题主要靠简历。
         }
 
+        String systemKbIds = knowledgeBaseService.resolveDualTrackKbIds(null);
         InterviewGenerateData data = aiServiceClient.generateQuestions(new InterviewGenerateRequest(
                 String.valueOf(interview.getUserId()),
                 String.valueOf(id),
@@ -253,7 +258,8 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
                 interview.getDifficulty(),
                 clampQuestionCount(interview.getQuestionCount()),
                 resumeText,
-                jobText));
+                jobText,
+                systemKbIds));
 
         List<InterviewGenerateData.Question> questions =
                 data.questions() == null ? List.of() : data.questions();

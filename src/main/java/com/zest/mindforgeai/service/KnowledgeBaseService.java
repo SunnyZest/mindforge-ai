@@ -53,4 +53,14 @@ public interface KnowledgeBaseService extends IService<KnowledgeBase> {
      * 不存在或无权访问 → 40403。
      */
     KnowledgeBase getAccessible(Long id);
+
+    /**
+     * 解析「私域个人库 + 公域官方智库」双路联合检索的知识库 ID 列表（逗号分隔字符串）。
+     * <p>
+     * 若 {@code primaryKbId} 非空，将其置于首位，并自动合并所有启用中且含已向量化文档的官方全局智库 ID（保序去重）；
+     * 若 {@code primaryKbId} 为空（如模拟面试出题、简历优化），则仅返回所有可用官方全局智库 ID；
+     * 若无任何可用知识库，返回 {@code null}。
+     */
+    String resolveDualTrackKbIds(Long primaryKbId);
 }
+

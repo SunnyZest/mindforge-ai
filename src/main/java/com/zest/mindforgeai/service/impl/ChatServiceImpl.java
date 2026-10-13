@@ -107,10 +107,11 @@ public class ChatServiceImpl implements ChatService {
         // ② 取最近几轮历史（在存完用户消息之后取，这样上下文是完整的）
         List<AiServiceClient.HistoryItem> history = loadHistory(conversationId);
 
-        // ③ 调 AI 服务 —— 这一步不占数据库事务
+        // ③ 调 AI 服务 —— 这一步不占数据库事务（自动联合启用中的全站官方智库双路召回）
+        String effectiveKbIds = kbId == null ? null : knowledgeBaseService.resolveDualTrackKbIds(kbId);
         AiServiceClient.ChatData data = aiClient.chat(new AiServiceClient.ChatRequest(
                 String.valueOf(userId),
-                kbId == null ? null : String.valueOf(kbId),
+                effectiveKbIds,
                 String.valueOf(conversationId),
                 dto.getMessage(),
                 dto.getTopK(),
@@ -164,9 +165,10 @@ public class ChatServiceImpl implements ChatService {
         List<AiServiceClient.Source> collected = new ArrayList<>();
         StringBuilder streamed = new StringBuilder();
 
+        String effectiveKbIds = kbId == null ? null : knowledgeBaseService.resolveDualTrackKbIds(kbId);
         aiClient.chatStream(new AiServiceClient.ChatRequest(
                 String.valueOf(userId),
-                kbId == null ? null : String.valueOf(kbId),
+                effectiveKbIds,
                 String.valueOf(conversationId),
                 dto.getMessage(),
                 dto.getTopK(),
@@ -227,9 +229,10 @@ public class ChatServiceImpl implements ChatService {
         Long kbId = Long.valueOf(dto.getKnowledgeBaseId());
         knowledgeBaseService.getAccessible(kbId);
 
+        String effectiveKbIds = knowledgeBaseService.resolveDualTrackKbIds(kbId);
         AiServiceClient.SearchData data = aiClient.search(new AiServiceClient.SearchRequest(
                 String.valueOf(SecurityUtils.getUserId()),
-                String.valueOf(kbId),
+                effectiveKbIds,
                 dto.getQuery(),
                 dto.getTopK(),
                 Boolean.TRUE.equals(dto.getEnableRerank())));

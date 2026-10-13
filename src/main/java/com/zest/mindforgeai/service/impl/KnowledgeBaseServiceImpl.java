@@ -25,7 +25,11 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 知识库服务实现
@@ -174,6 +178,34 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     @Override
     public KnowledgeBase getAccessible(Long id) {
         return requireAccessible(id);
+    }
+
+    @Override
+    public String resolveDualTrackKbIds(Long primaryKbId) {
+        Set<Long> kbIds = new LinkedHashSet<>();
+        if (primaryKbId != null && primaryKbId > 0) {
+            kbIds.add(primaryKbId);
+        }
+
+        List<KnowledgeBase> systemKbs = lambdaQuery()
+                .select(KnowledgeBase::getId)
+                .eq(KnowledgeBase::getIsSystem, 1)
+                .eq(KnowledgeBase::getStatus, 1)
+                .apply("EXISTS (SELECT 1 FROM document d WHERE d.knowledge_base_id = knowledge_base.id AND d.deleted = 0 AND d.vector_status = 'SUCCESS')")
+                .orderByAsc(KnowledgeBase::getId)
+                .list();
+        for (KnowledgeBase sysKb : systemKbs) {
+            if (sysKb != null && sysKb.getId() != null) {
+                kbIds.add(sysKb.getId());
+            }
+        }
+
+        if (kbIds.isEmpty()) {
+            return null;
+        }
+        return kbIds.stream()
+                .map(String::valueOf)
+                .collect(Collectors.joining(","));
     }
 
     /* ---------- 内部工具 ---------- */

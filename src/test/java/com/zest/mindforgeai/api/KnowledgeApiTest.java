@@ -1,11 +1,13 @@
 package com.zest.mindforgeai.api;
 
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.service.KnowledgeBaseService;
 import com.zest.mindforgeai.support.AbstractApiTest;
 import com.zest.mindforgeai.support.ApiResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
 
@@ -22,6 +24,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DisplayName("知识库")
 class KnowledgeApiTest extends AbstractApiTest {
+
+    @Autowired
+    private KnowledgeBaseService knowledgeBaseService;
 
     private String token;
     private long kbId;
@@ -136,5 +141,34 @@ class KnowledgeApiTest extends AbstractApiTest {
     @DisplayName("普通用户访问管理端知识库列表：403")
     void normalUserCannotListAdminKnowledgeBases() {
         get("/admin/knowledge-bases", token).assertHttpStatus(403);
+    }
+
+    @Test
+    @DisplayName("★ 公私域双路检索：仅合并已含向量化文档的启用中官方智库，且保序去重")
+    void dualTrackKbIdsResolution() {
+        // 1. 尚无可用官方智库时，单传个人库只返回个人库，传 null 返回 null
+        assertThat(knowledgeBaseService.resolveDualTrackKbIds(kbId)).isEqualTo(String.valueOf(kbId));
+        assertThat(knowledgeBaseService.resolveDualTrackKbIds(null)).isNull();
+
+        // 2. 插入一个官方智库（is_system=1），但尚无已向量化文档 -> 不应被拼入
+        jdbc.update("INSERT INTO knowledge_base (user_id, name, status, is_system, deleted) VALUES (1, '官方空库', 1, 1, 0)");
+        Long emptySysKbId = jdbc.queryForObject("SELECT id FROM knowledge_base WHERE name = '官方空库'", Long.class);
+        assertThat(knowledgeBaseService.resolveDualTrackKbIds(kbId)).isEqualTo(String.valueOf(kbId));
+
+        // 3. 给官方智库插入一篇 vector_status='SUCCESS' 的文档 -> 自动拼入双路检索
+        jdbc.update("""
+                INSERT INTO document (user_id, knowledge_base_id, file_name, file_type, file_url, file_size,
+                                      parse_status, chunk_status, vector_status, deleted)
+                VALUES (1, ?, '大厂真题.md', 'MD', 'docs/test.md', 1024, 'SUCCESS', 'SUCCESS', 'SUCCESS', 0)
+                """, emptySysKbId);
+
+        assertThat(knowledgeBaseService.resolveDualTrackKbIds(kbId))
+                .isEqualTo(kbId + "," + emptySysKbId);
+        assertThat(knowledgeBaseService.resolveDualTrackKbIds(emptySysKbId))
+                .as("直选官方智库时自动去重，不重复拼接")
+                .isEqualTo(String.valueOf(emptySysKbId));
+        assertThat(knowledgeBaseService.resolveDualTrackKbIds(null))
+                .as("模拟面试/简历优化传 null 时仅返回可用官方智库")
+                .isEqualTo(String.valueOf(emptySysKbId));
     }
 }

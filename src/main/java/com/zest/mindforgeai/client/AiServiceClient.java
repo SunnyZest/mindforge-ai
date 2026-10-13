@@ -675,7 +675,15 @@ public class AiServiceClient {
                                        String resumeId,
                                        String resumeText,
                                        String jobText,
-                                       String target) {
+                                       String target,
+                                       String knowledgeBaseId) {
+        public ResumeAnalyzeRequest(String userId,
+                                    String resumeId,
+                                    String resumeText,
+                                    String jobText,
+                                    String target) {
+            this(userId, resumeId, resumeText, jobText, target, null);
+        }
     }
 
     /**
@@ -769,7 +777,17 @@ public class AiServiceClient {
                                            String difficulty,
                                            Integer questionCount,
                                            String resumeText,
-                                           String jobText) {
+                                           String jobText,
+                                           String knowledgeBaseId) {
+        public InterviewGenerateRequest(String userId,
+                                        String interviewId,
+                                        String interviewType,
+                                        String difficulty,
+                                        Integer questionCount,
+                                        String resumeText,
+                                        String jobText) {
+            this(userId, interviewId, interviewType, difficulty, questionCount, resumeText, jobText, null);
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
