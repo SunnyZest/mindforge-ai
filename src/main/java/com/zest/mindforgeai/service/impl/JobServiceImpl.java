@@ -96,12 +96,13 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
+        String safeKeyword = SortSupport.escapeLike(keyword);
         LambdaQueryWrapper<Job> wrapper = new LambdaQueryWrapper<Job>()
                 .eq(Job::getUserId, SecurityUtils.getUserId())
                 // 关键词：职位名称 / 公司名称 任一匹配
-                .and(StringUtils.hasText(keyword), w -> w
-                        .like(Job::getTitle, keyword).or()
-                        .like(Job::getCompanyName, keyword));
+                .and(StringUtils.hasText(safeKeyword), w -> w
+                        .like(Job::getTitle, safeKeyword).or()
+                        .like(Job::getCompanyName, safeKeyword));
 
         SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, Job::getId, false);
 

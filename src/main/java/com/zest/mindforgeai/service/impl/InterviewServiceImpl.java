@@ -57,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * AI 面试服务实现
@@ -95,6 +96,9 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
             "status", Interview::getStatus,
             "createdAt", Interview::getCreatedAt,
             "finishedAt", Interview::getFinishedAt);
+
+    /** 进程内防并发重入集合，防止同一场面试并发触发 generate / finish 导致多次调用 LLM 和覆盖题目 */
+    private final Set<Long> inFlightIds = ConcurrentHashMap.newKeySet();
 
     private final InterviewQuestionMapper questionMapper;
     private final InterviewReportMapper reportMapper;
@@ -190,9 +194,10 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
+        String safeKeyword = SortSupport.escapeLike(keyword);
         LambdaQueryWrapper<Interview> wrapper = new LambdaQueryWrapper<Interview>()
                 .eq(Interview::getUserId, SecurityUtils.getUserId())
-                .like(StringUtils.hasText(keyword), Interview::getTitle, keyword)
+                .like(StringUtils.hasText(safeKeyword), Interview::getTitle, safeKeyword)
                 .eq(StringUtils.hasText(status), Interview::getStatus, normalizeStatus(status));
 
         SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, Interview::getId, false);
@@ -220,67 +225,98 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
     @Override
     public InterviewDetailVO generate(Long id) {
         Interview interview = requireOwned(id);
-
-        if (FINISHED.equals(interview.getStatus())) {
-            throw new BizException(ErrorCode.STATUS_CONFLICT, "面试已结束，不能再重新出题");
+        if (!inFlightIds.add(id)) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT, "正在生成题目中，请勿重复提交");
         }
-        if (IN_PROGRESS.equals(interview.getStatus())) {
-            // 已经答了一半再换一套题，用户答过的就全对不上了
-            throw new BizException(ErrorCode.STATUS_CONFLICT, "面试已开始作答，不能再重新出题");
-        }
-
-        String resumeText = null;
-        if (interview.getResumeId() != null) {
-            ResumeDetailVO resume = resumeService.getDetail(interview.getResumeId());
-            resumeText = resume.getRawContent();
-            // 简历没解析就没内容可问 —— 让用户先去解析，
-            // 而不是拿一份空简历让模型瞎出题（出来的题会完全跑偏）。
-            if (!StringUtils.hasText(resumeText)) {
-                throw new BizException(ErrorCode.PARAM_INVALID,
-                        "关联的简历还没有解析过，请先解析再出题");
+        try {
+            if (FINISHED.equals(interview.getStatus())) {
+                throw new BizException(ErrorCode.STATUS_CONFLICT, "面试已结束，不能再重新出题");
             }
+            if (IN_PROGRESS.equals(interview.getStatus())) {
+                // 已经答了一半再换一套题，用户答过的就全对不上了
+                throw new BizException(ErrorCode.STATUS_CONFLICT, "面试已开始作答，不能再重新出题");
+            }
+
+            String resumeText = null;
+            if (interview.getResumeId() != null) {
+                try {
+                    ResumeDetailVO resume = resumeService.getDetail(interview.getResumeId());
+                    resumeText = resume.getRawContent();
+                    // 简历没解析就没内容可问 —— 让用户先去解析，
+                    // 而不是拿一份空简历让模型瞎出题（出来的题会完全跑偏）。
+                    if (!StringUtils.hasText(resumeText)) {
+                        throw new BizException(ErrorCode.PARAM_INVALID,
+                                "关联的简历还没有解析过，请先解析再出题");
+                    }
+                } catch (BizException e) {
+                    if (e.getCode() == ErrorCode.RESUME_NOT_FOUND.getCode()) {
+                        log.warn("面试 {} 关联的简历 {} 已删除，软回退为按岗位/通用题库出题",
+                                id, interview.getResumeId());
+                        resumeText = null;
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+
+            String jobText = null;
+            String jobTitle = null;
+            if (interview.getJobId() != null) {
+                try {
+                    JobDetailVO job = jobService.getDetail(interview.getJobId());
+                    jobText = job.getRawContent();
+                    jobTitle = job.getTitle();
+                    // JD 没解析只是少一点针对性，不拦 —— 出题主要靠简历。
+                } catch (BizException e) {
+                    if (e.getCode() == ErrorCode.JOB_NOT_FOUND.getCode()) {
+                        log.warn("面试 {} 关联的职位 {} 已删除，软回退为不针对具体岗位出题",
+                                id, interview.getJobId());
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+
+            if (!StringUtils.hasText(resumeText) && !StringUtils.hasText(jobText)) {
+                jobText = StringUtils.hasText(interview.getTitle())
+                        ? interview.getTitle()
+                        : "通用技术岗位";
+            }
+
+            String systemKbIds = knowledgeBaseService.resolveDualTrackKbIds(null);
+            InterviewGenerateData data = aiServiceClient.generateQuestions(new InterviewGenerateRequest(
+                    String.valueOf(interview.getUserId()),
+                    String.valueOf(id),
+                    interview.getInterviewType(),
+                    interview.getDifficulty(),
+                    clampQuestionCount(interview.getQuestionCount()),
+                    resumeText,
+                    jobText,
+                    systemKbIds));
+
+            List<InterviewGenerateData.Question> questions =
+                    data.questions() == null ? List.of() : data.questions();
+
+            // Python 侧正常不会返回空（它自己会兜底），真返回了说明模型抽风。
+            // 不报错的话会留下一个「0 道题但状态正常」的面试 —— 用户点开始就卡在那里，
+            // 而且看不出是出题失败了。
+            if (questions.isEmpty()) {
+                throw new BizException(ErrorCode.AI_SERVICE_ERROR, "AI 没有生成任何题目，请重试");
+            }
+
+            int saved = persistQuestions(id, questions);
+
+            log.info("面试出题 interviewId={} 实际 {} 道（计划 {} 道）岗位={}",
+                    id, saved, interview.getQuestionCount(), jobTitle);
+
+            auditService.recordSuccess(AuditConstants.ACTION_INTERVIEW_GENERATE,
+                    AuditConstants.RESOURCE_INTERVIEW, String.valueOf(id),
+                    Map.of("questionCount", saved));
+
+            return getDetail(id);
+        } finally {
+            inFlightIds.remove(id);
         }
-
-        String jobText = null;
-        String jobTitle = null;
-        if (interview.getJobId() != null) {
-            JobDetailVO job = jobService.getDetail(interview.getJobId());
-            jobText = job.getRawContent();
-            jobTitle = job.getTitle();
-            // JD 没解析只是少一点针对性，不拦 —— 出题主要靠简历。
-        }
-
-        String systemKbIds = knowledgeBaseService.resolveDualTrackKbIds(null);
-        InterviewGenerateData data = aiServiceClient.generateQuestions(new InterviewGenerateRequest(
-                String.valueOf(interview.getUserId()),
-                String.valueOf(id),
-                interview.getInterviewType(),
-                interview.getDifficulty(),
-                clampQuestionCount(interview.getQuestionCount()),
-                resumeText,
-                jobText,
-                systemKbIds));
-
-        List<InterviewGenerateData.Question> questions =
-                data.questions() == null ? List.of() : data.questions();
-
-        // Python 侧正常不会返回空（它自己会兜底），真返回了说明模型抽风。
-        // 不报错的话会留下一个「0 道题但状态正常」的面试 —— 用户点开始就卡在那里，
-        // 而且看不出是出题失败了。
-        if (questions.isEmpty()) {
-            throw new BizException(ErrorCode.AI_SERVICE_ERROR, "AI 没有生成任何题目，请重试");
-        }
-
-        int saved = persistQuestions(id, questions);
-
-        log.info("面试出题 interviewId={} 实际 {} 道（计划 {} 道）岗位={}",
-                id, saved, interview.getQuestionCount(), jobTitle);
-
-        auditService.recordSuccess(AuditConstants.ACTION_INTERVIEW_GENERATE,
-                AuditConstants.RESOURCE_INTERVIEW, String.valueOf(id),
-                Map.of("questionCount", saved));
-
-        return getDetail(id);
     }
 
     @Override
@@ -378,51 +414,63 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
     @Override
     public InterviewReportVO finish(Long id) {
         Interview interview = requireOwned(id);
-
-        List<InterviewQuestion> questions = listQuestions(id);
-        if (questions.isEmpty()) {
-            throw new BizException(ErrorCode.STATUS_CONFLICT, "这场面试还没有题目");
+        if (!inFlightIds.add(id)) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT, "正在生成面试报告中，请勿重复提交");
         }
-        // 一道都没答就没有素材可复盘。让模型凭空写一份「报告」，
-        // 写出来的只能是套话，而用户会以为那是针对自己的评价 —— 比没有报告更糟。
-        if (questions.stream().noneMatch(q -> q.getAnsweredAt() != null)) {
-            throw new BizException(ErrorCode.STATUS_CONFLICT, "还没有作答任何题目，无法生成报告");
+        try {
+            List<InterviewQuestion> questions = listQuestions(id);
+            if (questions.isEmpty()) {
+                throw new BizException(ErrorCode.STATUS_CONFLICT, "这场面试还没有题目");
+            }
+            // 一道都没答就没有素材可复盘。让模型凭空写一份「报告」，
+            // 写出来的只能是套话，而用户会以为那是针对自己的评价 —— 比没有报告更糟。
+            if (questions.stream().noneMatch(q -> q.getAnsweredAt() != null)) {
+                throw new BizException(ErrorCode.STATUS_CONFLICT, "还没有作答任何题目，无法生成报告");
+            }
+
+            // ★ 未作答的题也带上（answer / score 为 null）——
+            //   报告里要能说出「有 2 题没答」，只给答过的题模型是看不到这个事实的。
+            List<InterviewReportRequest.ReportItem> items = questions.stream()
+                    .map(q -> new InterviewReportRequest.ReportItem(
+                            q.getQuestionNo(),
+                            q.getQuestion(),
+                            q.getUserAnswer(),
+                            q.getScore() == null ? null : q.getScore().doubleValue(),
+                            parseJsonNode(q.getAiAnalysis())))
+                    .toList();
+
+            String jobTitle = null;
+            if (interview.getJobId() != null) {
+                try {
+                    jobTitle = jobService.getDetail(interview.getJobId()).getTitle();
+                } catch (BizException e) {
+                    log.warn("面试 {} 结束时关联职位 {} 已不可用（{}），软回退按通用岗位生成报告",
+                            id, interview.getJobId(), e.getMessage());
+                }
+            }
+
+            InterviewReportData data = aiServiceClient.buildReport(new InterviewReportRequest(
+                    String.valueOf(interview.getUserId()),
+                    String.valueOf(id),
+                    interview.getInterviewType(),
+                    jobTitle,
+                    items));
+
+            persistReport(id, data);
+
+            log.info("面试报告 interviewId={} 综合={} 技术={} 沟通={} 问题解决={}",
+                    id, data.overallScore(), data.technicalScore(),
+                    data.communicationScore(), data.problemSolvingScore());
+
+            auditService.recordSuccess(AuditConstants.ACTION_INTERVIEW_FINISH,
+                    AuditConstants.RESOURCE_INTERVIEW, String.valueOf(id),
+                    Map.of("questionCount", questions.size(),
+                           "overallScore", data.overallScore() == null ? 0 : data.overallScore()));
+
+            return getReport(id);
+        } finally {
+            inFlightIds.remove(id);
         }
-
-        // ★ 未作答的题也带上（answer / score 为 null）——
-        //   报告里要能说出「有 2 题没答」，只给答过的题模型是看不到这个事实的。
-        List<InterviewReportRequest.ReportItem> items = questions.stream()
-                .map(q -> new InterviewReportRequest.ReportItem(
-                        q.getQuestionNo(),
-                        q.getQuestion(),
-                        q.getUserAnswer(),
-                        q.getScore() == null ? null : q.getScore().doubleValue(),
-                        parseJsonNode(q.getAiAnalysis())))
-                .toList();
-
-        String jobTitle = interview.getJobId() == null
-                ? null
-                : jobService.getDetail(interview.getJobId()).getTitle();
-
-        InterviewReportData data = aiServiceClient.buildReport(new InterviewReportRequest(
-                String.valueOf(interview.getUserId()),
-                String.valueOf(id),
-                interview.getInterviewType(),
-                jobTitle,
-                items));
-
-        persistReport(id, data);
-
-        log.info("面试报告 interviewId={} 综合={} 技术={} 沟通={} 问题解决={}",
-                id, data.overallScore(), data.technicalScore(),
-                data.communicationScore(), data.problemSolvingScore());
-
-        auditService.recordSuccess(AuditConstants.ACTION_INTERVIEW_FINISH,
-                AuditConstants.RESOURCE_INTERVIEW, String.valueOf(id),
-                Map.of("questionCount", questions.size(),
-                       "overallScore", data.overallScore() == null ? 0 : data.overallScore()));
-
-        return getReport(id);
     }
 
     @Override

@@ -131,12 +131,13 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
+        String safeKeyword = SortSupport.escapeLike(keyword);
         LambdaQueryWrapper<Resume> wrapper = new LambdaQueryWrapper<Resume>()
                 .eq(Resume::getUserId, SecurityUtils.getUserId())
                 // 关键词：简历名称 / 目标职位 任一匹配
-                .and(StringUtils.hasText(keyword), w -> w
-                        .like(Resume::getName, keyword).or()
-                        .like(Resume::getTargetPosition, keyword));
+                .and(StringUtils.hasText(safeKeyword), w -> w
+                        .like(Resume::getName, safeKeyword).or()
+                        .like(Resume::getTargetPosition, safeKeyword));
 
         SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, Resume::getId, false);
 
