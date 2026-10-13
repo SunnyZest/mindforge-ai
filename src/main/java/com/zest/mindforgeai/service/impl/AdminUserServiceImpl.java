@@ -111,14 +111,15 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             }
         }
 
+        String safeKeyword = SortSupport.escapeLike(keyword);
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>()
                 .eq(status != null, User::getStatus, status)
                 .in(userIdsOfRole != null, User::getId, userIdsOfRole)
                 // 关键词：用户名 / 昵称 / 邮箱 任一匹配
-                .and(StringUtils.hasText(keyword), w -> w
-                        .like(User::getUsername, keyword).or()
-                        .like(User::getNickname, keyword).or()
-                        .like(User::getEmail, keyword));
+                .and(StringUtils.hasText(safeKeyword), w -> w
+                        .like(User::getUsername, safeKeyword).or()
+                        .like(User::getNickname, safeKeyword).or()
+                        .like(User::getEmail, safeKeyword));
 
         SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, User::getId, false);
 
@@ -198,6 +199,11 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
                 .setId(userId)
                 .setStatus(status)
                 .setUpdatedAt(LocalDateTime.now()));
+
+        // 禁用账号时同步撤销该用户全部 refresh token，阻断其继续续期会话
+        if (status != null && status != STATUS_ENABLED) {
+            refreshTokenService.revokeAll(userId);
+        }
 
         log.info("修改用户状态 userId={} status={}", userId, status);
     }

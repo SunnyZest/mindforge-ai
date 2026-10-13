@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -18,6 +19,7 @@ public class SendMessageDTO {
 
     @Schema(description = "用户提问")
     @NotBlank(message = "消息内容不能为空")
+    @Size(max = 10000, message = "消息内容不能超过 10000 个字符")
     private String message;
 
     @Schema(description = "检索片段数，默认 8")

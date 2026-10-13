@@ -20,6 +20,7 @@ public class ChangePasswordDTO {
 
     @Schema(description = "原密码")
     @NotBlank(message = "原密码不能为空")
+    @Size(max = 64, message = "原密码长度不能超过 64 个字符")
     private String oldPassword;
 
     @Schema(description = "新密码")

@@ -191,6 +191,9 @@ public class UserAuthController {
         if (user == null) {
             throw new BizException(ErrorCode.USER_NOT_FOUND);
         }
+        if (!Integer.valueOf(1).equals(user.getStatus())) {
+            throw new BizException(ErrorCode.ACCOUNT_DISABLED);
+        }
         List<String> roles = userService.listRoleCodes(result.userId());
 
         log.debug("刷新 access token userId={} username={}", result.userId(), user.getUsername());

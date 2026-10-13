@@ -102,4 +102,17 @@ public final class SortSupport {
         return new BizException(ErrorCode.PARAM_INVALID,
                 "不支持按「" + sortBy + "」排序，可选：" + String.join("、", new TreeSet<>(allowed)));
     }
+
+    /**
+     * 转义 MySQL LIKE 查询中的通配符（\、%、_），防止用户输入 "%" 或 "_" 触发全表匹配。
+     */
+    public static String escapeLike(String keyword) {
+        if (!StringUtils.hasText(keyword)) {
+            return keyword;
+        }
+        return keyword.trim()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+    }
 }

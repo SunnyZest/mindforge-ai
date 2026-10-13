@@ -38,5 +38,6 @@ public class LoginDTO {
 
     @Schema(description = "密码", example = "123456")
     @NotBlank(message = "密码不能为空")
+    @Size(max = 64, message = "密码长度不能超过 64 个字符")
     private String password;
 }

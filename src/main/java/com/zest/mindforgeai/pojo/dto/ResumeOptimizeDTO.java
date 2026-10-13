@@ -1,6 +1,7 @@
 package com.zest.mindforgeai.pojo.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -21,6 +22,7 @@ public class ResumeOptimizeDTO {
      * 不传就按通用标准评（相当于「让这份简历自己更好」）。
      */
     @Schema(description = "目标岗位 id，可空；不传则按通用标准评")
+    @Size(max = 64, message = "目标岗位 id 长度不能超过 64 个字符")
     private String jobId;
 
     /**
@@ -33,5 +35,6 @@ public class ResumeOptimizeDTO {
             example = "PROJECT_EXPERIENCE",
             allowableValues = {"SUMMARY", "WORK_EXPERIENCE", "PROJECT_EXPERIENCE",
                     "SKILLS", "EDUCATION", "OVERALL"})
+    @Size(max = 64, message = "重点分析模块名称长度不能超过 64 个字符")
     private String target;
 }

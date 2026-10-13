@@ -2,6 +2,7 @@ package com.zest.mindforgeai.pojo.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -25,5 +26,6 @@ public class InterviewAnswerDTO {
      * 空回答会拿到一个低分而不是报错。报错的话用户跳过一题整场面试就卡死了。
      */
     @Schema(description = "回答内容；可为空 —— 跳过一题是正常行为，会给低分而不是报错")
+    @Size(max = 10000, message = "回答内容不能超过 10000 个字符")
     private String answer;
 }

@@ -18,6 +18,7 @@ import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,6 +59,9 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
 
     private final ObjectMapper objectMapper;
     private final AlertService alertService;
+
+    @Value("${mindforge.security.trust-forwarded-headers:false}")
+    private boolean trustForwardedHeaders;
 
     public AuditServiceImpl(ObjectMapper objectMapper, AlertService alertService) {
         this.objectMapper = objectMapper;
@@ -193,16 +197,18 @@ public class AuditServiceImpl extends ServiceImpl<AuditLogMapper, SysAuditLog>
         return null;
     }
 
-    /** 优先取代理头（Nginx 已配置 X-Real-IP / X-Forwarded-For），最后才用 remoteAddr */
+    /** 仅在显式开启信任反向代理头时取 X-Real-IP / X-Forwarded-For，否则一律用 remoteAddr 防伪造 */
     private String resolveClientIp(HttpServletRequest request) {
-        String ip = firstIp(request.getHeader(HEADER_FORWARDED_FOR));
-        if (ip == null) {
-            ip = firstIp(request.getHeader(HEADER_REAL_IP));
+        if (trustForwardedHeaders) {
+            String ip = firstIp(request.getHeader(HEADER_FORWARDED_FOR));
+            if (ip == null) {
+                ip = firstIp(request.getHeader(HEADER_REAL_IP));
+            }
+            if (ip != null) {
+                return ip;
+            }
         }
-        if (ip == null) {
-            ip = request.getRemoteAddr();
-        }
-        return ip;
+        return request.getRemoteAddr();
     }
 
     /** X-Forwarded-For 形如「client, proxy1, proxy2」，取第一个；空值或 unknown 返回 null */

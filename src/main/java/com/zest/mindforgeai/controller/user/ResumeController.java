@@ -10,6 +10,7 @@ import com.zest.mindforgeai.pojo.vo.ResumeVO;
 import com.zest.mindforgeai.service.ResumeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -134,7 +135,7 @@ public class ResumeController {
     @PostMapping("/{id}/optimize")
     @PreAuthorize("hasAuthority('app:resume:optimize')")
     public Result<ResumeOptimizeVO> optimize(@PathVariable Long id,
-                                             @RequestBody(required = false) ResumeOptimizeDTO dto) {
+                                             @Valid @RequestBody(required = false) ResumeOptimizeDTO dto) {
         return Result.success(resumeService.optimize(id, dto));
     }
 

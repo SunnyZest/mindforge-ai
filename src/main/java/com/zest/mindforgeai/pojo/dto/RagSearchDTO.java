@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -22,6 +23,7 @@ public class RagSearchDTO {
 
     @Schema(description = "检索内容")
     @NotBlank(message = "检索内容不能为空")
+    @Size(max = 2000, message = "检索内容不能超过 2000 个字符")
     private String query;
 
     @Schema(description = "返回片段数，默认 8")

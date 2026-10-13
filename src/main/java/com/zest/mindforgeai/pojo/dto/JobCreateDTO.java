@@ -2,6 +2,7 @@ package com.zest.mindforgeai.pojo.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -33,6 +34,7 @@ public class JobCreateDTO {
 
     @Schema(description = "职位来源链接")
     @Size(max = 1000, message = "来源链接最长 1000 个字符")
+    @Pattern(regexp = "^$|^https?://.+", message = "来源链接必须以 http:// 或 https:// 开头")
     private String sourceUrl;
 
     @Schema(description = "经验要求，如 3-5 年")
@@ -51,5 +53,6 @@ public class JobCreateDTO {
      */
     @Schema(description = "JD 正文（原始描述）")
     @NotBlank(message = "职位描述不能为空")
+    @Size(max = 50000, message = "职位描述最长 50000 个字符")
     private String jobDescription;
 }
