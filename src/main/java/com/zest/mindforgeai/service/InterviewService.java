@@ -2,8 +2,11 @@ package com.zest.mindforgeai.service;
 
 import com.zest.mindforgeai.pojo.dto.InterviewAnswerDTO;
 import com.zest.mindforgeai.pojo.dto.InterviewCreateDTO;
+import com.zest.mindforgeai.pojo.dto.InterviewPracticeDTO;
 import com.zest.mindforgeai.pojo.vo.InterviewAnswerResultVO;
 import com.zest.mindforgeai.pojo.vo.InterviewDetailVO;
+import com.zest.mindforgeai.pojo.vo.InterviewMistakeStatsVO;
+import com.zest.mindforgeai.pojo.vo.InterviewMistakeVO;
 import com.zest.mindforgeai.pojo.vo.InterviewReportVO;
 import com.zest.mindforgeai.pojo.vo.InterviewVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
@@ -102,4 +105,26 @@ public interface InterviewService {
      * 本项目所有表都没有外键，所以必须在同一个事务里手动清干净。
      */
     void delete(Long id);
+
+    /** 面试错题本统计概览（仅统计已结束面试中已作答题目） */
+    InterviewMistakeStatsVO getMistakeStats();
+
+    /**
+     * 面试错题与薄弱点分页列表。
+     *
+     * @param masteryStatus WEAK（默认，score &lt; 75）/ MASTERED（score &gt;= 75）/ ALL
+     * @param questionType  TECHNICAL / BEHAVIORAL / SITUATIONAL（可选）
+     * @param difficulty    EASY / MEDIUM / HARD（可选）
+     * @param keyword       题干关键词（可选）
+     */
+    PageResultVO<InterviewMistakeVO> pageMistakes(long page, long pageSize,
+                                                  String masteryStatus,
+                                                  String questionType,
+                                                  String difficulty,
+                                                  String keyword);
+
+    /**
+     * 错题本单题重练刷分（慢，调 AI 重新评估并更新本题回答与得分）。
+     */
+    InterviewMistakeVO practiceQuestion(Long questionId, InterviewPracticeDTO dto);
 }

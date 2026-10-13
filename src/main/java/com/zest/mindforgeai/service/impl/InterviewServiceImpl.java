@@ -25,12 +25,15 @@ import com.zest.mindforgeai.mapper.InterviewQuestionMapper;
 import com.zest.mindforgeai.mapper.InterviewReportMapper;
 import com.zest.mindforgeai.pojo.dto.InterviewAnswerDTO;
 import com.zest.mindforgeai.pojo.dto.InterviewCreateDTO;
+import com.zest.mindforgeai.pojo.dto.InterviewPracticeDTO;
 import com.zest.mindforgeai.pojo.entity.Interview;
 import com.zest.mindforgeai.pojo.entity.InterviewQuestion;
 import com.zest.mindforgeai.pojo.entity.InterviewReport;
 import com.zest.mindforgeai.pojo.vo.InterviewAnalysisVO;
 import com.zest.mindforgeai.pojo.vo.InterviewAnswerResultVO;
 import com.zest.mindforgeai.pojo.vo.InterviewDetailVO;
+import com.zest.mindforgeai.pojo.vo.InterviewMistakeStatsVO;
+import com.zest.mindforgeai.pojo.vo.InterviewMistakeVO;
 import com.zest.mindforgeai.pojo.vo.InterviewQuestionVO;
 import com.zest.mindforgeai.pojo.vo.InterviewReportVO;
 import com.zest.mindforgeai.pojo.vo.InterviewVO;
@@ -58,6 +61,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * AI 面试服务实现
@@ -79,8 +84,12 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
     private static final String FINISHED = "FINISHED";
 
     private static final Set<String> INTERVIEW_TYPES = Set.of("TECHNICAL", "BEHAVIORAL", "MIXED");
+    private static final Set<String> QUESTION_TYPES = Set.of("TECHNICAL", "BEHAVIORAL", "SITUATIONAL");
     private static final Set<String> DIFFICULTIES = Set.of("EASY", "MEDIUM", "HARD");
     private static final Set<String> STATUSES = Set.of(CREATED, IN_PROGRESS, FINISHED);
+
+    /** 错题本掌握分数线：低于 75 分视为待攻克薄弱项，>= 75 分视为已掌握 */
+    private static final BigDecimal MASTERY_THRESHOLD = BigDecimal.valueOf(75.0);
 
     private static final int DEFAULT_QUESTION_COUNT = 5;
     /** 上限对齐 Python 侧 InterviewGenerateRequest.questionCount 的 le=20 */
@@ -510,6 +519,165 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
                 AuditConstants.RESOURCE_INTERVIEW, String.valueOf(id),
                 Map.of("title", interview.getTitle(),
                        "questionCount", questions));
+    }
+
+    @Override
+    public InterviewMistakeStatsVO getMistakeStats() {
+        List<Interview> finished = list(new LambdaQueryWrapper<Interview>()
+                .select(Interview::getId)
+                .eq(Interview::getUserId, SecurityUtils.getUserId())
+                .eq(Interview::getStatus, FINISHED));
+
+        InterviewMistakeStatsVO vo = new InterviewMistakeStatsVO();
+        if (finished.isEmpty()) {
+            vo.setTotalAnswered(0L);
+            vo.setWeakCount(0L);
+            vo.setMasteredCount(0L);
+            vo.setAverageScore(null);
+            return vo;
+        }
+
+        List<Long> interviewIds = finished.stream().map(Interview::getId).toList();
+        List<InterviewQuestion> answered = questionMapper.selectList(
+                new LambdaQueryWrapper<InterviewQuestion>()
+                        .select(InterviewQuestion::getScore)
+                        .in(InterviewQuestion::getInterviewId, interviewIds)
+                        .isNotNull(InterviewQuestion::getAnsweredAt));
+
+        long total = answered.size();
+        long weak = 0L;
+        long mastered = 0L;
+        BigDecimal sum = BigDecimal.ZERO;
+
+        for (InterviewQuestion q : answered) {
+            BigDecimal s = q.getScore() == null ? BigDecimal.ZERO : q.getScore();
+            sum = sum.add(s);
+            if (s.compareTo(MASTERY_THRESHOLD) < 0) {
+                weak++;
+            } else {
+                mastered++;
+            }
+        }
+
+        vo.setTotalAnswered(total);
+        vo.setWeakCount(weak);
+        vo.setMasteredCount(mastered);
+        vo.setAverageScore(total == 0 ? null
+                : sum.divide(BigDecimal.valueOf(total), 1, RoundingMode.HALF_UP).doubleValue());
+        return vo;
+    }
+
+    @Override
+    public PageResultVO<InterviewMistakeVO> pageMistakes(long page, long pageSize,
+                                                         String masteryStatus,
+                                                         String questionType,
+                                                         String difficulty,
+                                                         String keyword) {
+        long safePage = Math.max(1, page);
+        long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
+
+        List<Interview> finished = list(new LambdaQueryWrapper<Interview>()
+                .select(Interview::getId, Interview::getTitle, Interview::getInterviewType)
+                .eq(Interview::getUserId, SecurityUtils.getUserId())
+                .eq(Interview::getStatus, FINISHED));
+
+        if (finished.isEmpty()) {
+            return PageResultVO.of(new Page<>(safePage, safeSize, 0), List.of());
+        }
+
+        Map<Long, Interview> interviewMap = finished.stream()
+                .collect(Collectors.toMap(Interview::getId, Function.identity(), (a, b) -> a));
+
+        String mode = StringUtils.hasText(masteryStatus) ? masteryStatus.trim().toUpperCase() : "WEAK";
+        String safeKeyword = SortSupport.escapeLike(keyword);
+        String qType = StringUtils.hasText(questionType) ? questionType.trim().toUpperCase() : null;
+        if (qType != null && !QUESTION_TYPES.contains(qType)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "不支持的题型：" + questionType);
+        }
+        String diff = StringUtils.hasText(difficulty) ? difficulty.trim().toUpperCase() : null;
+        if (diff != null && !DIFFICULTIES.contains(diff)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "不支持的难度：" + difficulty);
+        }
+
+        LambdaQueryWrapper<InterviewQuestion> wrapper = new LambdaQueryWrapper<InterviewQuestion>()
+                .in(InterviewQuestion::getInterviewId, interviewMap.keySet())
+                .isNotNull(InterviewQuestion::getAnsweredAt)
+                .lt("WEAK".equals(mode), InterviewQuestion::getScore, MASTERY_THRESHOLD)
+                .ge("MASTERED".equals(mode), InterviewQuestion::getScore, MASTERY_THRESHOLD)
+                .eq(qType != null, InterviewQuestion::getQuestionType, qType)
+                .eq(diff != null, InterviewQuestion::getDifficulty, diff)
+                .like(StringUtils.hasText(safeKeyword), InterviewQuestion::getQuestion, safeKeyword)
+                .orderByAsc(InterviewQuestion::getScore)
+                .orderByDesc(InterviewQuestion::getAnsweredAt)
+                .orderByDesc(InterviewQuestion::getId);
+
+        Page<InterviewQuestion> result = questionMapper.selectPage(new Page<>(safePage, safeSize), wrapper);
+        List<InterviewMistakeVO> records = result.getRecords().stream()
+                .map(q -> toMistakeVO(q, interviewMap.get(q.getInterviewId())))
+                .toList();
+
+        return PageResultVO.of(result, records);
+    }
+
+    @Override
+    public InterviewMistakeVO practiceQuestion(Long questionId, InterviewPracticeDTO dto) {
+        InterviewQuestion question = questionMapper.selectById(questionId);
+        if (question == null) {
+            throw new BizException(ErrorCode.INTERVIEW_QUESTION_NOT_FOUND);
+        }
+
+        Interview interview = requireOwned(question.getInterviewId());
+        if (!FINISHED.equals(interview.getStatus())) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT, "该场面试尚未结束，请先在面试流程中完成作答");
+        }
+
+        String answer = dto == null || dto.getAnswer() == null ? "" : dto.getAnswer().trim();
+        if (!StringUtils.hasText(answer)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "重练回答内容不能为空");
+        }
+
+        InterviewAnalyzeData data = aiServiceClient.analyzeAnswer(new InterviewAnalyzeRequest(
+                String.valueOf(interview.getUserId()),
+                String.valueOf(interview.getId()),
+                question.getQuestion(),
+                answer,
+                parseStringList(question.getExpectedPoints()),
+                interview.getInterviewType()));
+
+        saveAnswer(question.getId(), answer, data);
+
+        log.info("错题本重练 questionId={} interviewId={} 原得分={} 新得分={}",
+                questionId, interview.getId(), question.getScore(), data.score());
+
+        auditService.recordSuccess(AuditConstants.ACTION_INTERVIEW_ANSWER,
+                AuditConstants.RESOURCE_INTERVIEW, String.valueOf(interview.getId()),
+                Map.of("questionId", String.valueOf(questionId),
+                       "questionNo", question.getQuestionNo(),
+                       "practice", true,
+                       "score", data.score() == null ? 0 : data.score()));
+
+        InterviewQuestion updated = questionMapper.selectById(questionId);
+        return toMistakeVO(updated, interview);
+    }
+
+    private InterviewMistakeVO toMistakeVO(InterviewQuestion question, Interview interview) {
+        InterviewMistakeVO vo = new InterviewMistakeVO();
+        vo.setQuestionId(String.valueOf(question.getId()));
+        vo.setInterviewId(String.valueOf(question.getInterviewId()));
+        vo.setInterviewTitle(interview == null ? "历史模拟面试" : interview.getTitle());
+        vo.setInterviewType(interview == null ? "TECHNICAL" : interview.getInterviewType());
+        vo.setQuestionNo(question.getQuestionNo());
+        vo.setQuestionType(question.getQuestionType());
+        vo.setDifficulty(question.getDifficulty());
+        vo.setQuestion(question.getQuestion());
+        vo.setUserAnswer(question.getUserAnswer());
+        Double score = question.getScore() == null ? null : question.getScore().doubleValue();
+        vo.setScore(score);
+        vo.setMastered(question.getScore() != null && question.getScore().compareTo(MASTERY_THRESHOLD) >= 0);
+        vo.setAiAnalysis(toAnalysisVO(question.getAiAnalysis()));
+        vo.setExpectedPoints(parseStringList(question.getExpectedPoints()));
+        vo.setAnsweredAt(question.getAnsweredAt());
+        return vo;
     }
 
     /* ---------- 内部工具 ---------- */

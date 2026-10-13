@@ -3,8 +3,11 @@ package com.zest.mindforgeai.controller.user;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.InterviewAnswerDTO;
 import com.zest.mindforgeai.pojo.dto.InterviewCreateDTO;
+import com.zest.mindforgeai.pojo.dto.InterviewPracticeDTO;
 import com.zest.mindforgeai.pojo.vo.InterviewAnswerResultVO;
 import com.zest.mindforgeai.pojo.vo.InterviewDetailVO;
+import com.zest.mindforgeai.pojo.vo.InterviewMistakeStatsVO;
+import com.zest.mindforgeai.pojo.vo.InterviewMistakeVO;
 import com.zest.mindforgeai.pojo.vo.InterviewReportVO;
 import com.zest.mindforgeai.pojo.vo.InterviewVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
@@ -67,6 +70,36 @@ public class InterviewController {
 
         return Result.success(interviewService.pageInterviews(
                 page, pageSize, keyword, status, sortBy, sortOrder));
+    }
+
+    @Operation(summary = "面试错题本统计概览")
+    @GetMapping("/mistakes/stats")
+    @PreAuthorize("hasAuthority('app:interview:read')")
+    public Result<InterviewMistakeStatsVO> mistakeStats() {
+        return Result.success(interviewService.getMistakeStats());
+    }
+
+    @Operation(summary = "面试错题与薄弱点分页列表")
+    @GetMapping("/mistakes")
+    @PreAuthorize("hasAuthority('app:interview:read')")
+    public Result<PageResultVO<InterviewMistakeVO>> pageMistakes(
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long pageSize,
+            @RequestParam(defaultValue = "WEAK") String masteryStatus,
+            @RequestParam(required = false) String questionType,
+            @RequestParam(required = false) String difficulty,
+            @RequestParam(required = false) String keyword) {
+        return Result.success(interviewService.pageMistakes(
+                page, pageSize, masteryStatus, questionType, difficulty, keyword));
+    }
+
+    @Operation(summary = "错题本单题重练刷分")
+    @PostMapping("/questions/{questionId}/practice")
+    @PreAuthorize("hasAuthority('app:interview:answer')")
+    public Result<InterviewMistakeVO> practiceQuestion(
+            @PathVariable Long questionId,
+            @Valid @RequestBody InterviewPracticeDTO dto) {
+        return Result.success(interviewService.practiceQuestion(questionId, dto));
     }
 
     /**
