@@ -151,16 +151,16 @@ class KnowledgeApiTest extends AbstractApiTest {
         assertThat(knowledgeBaseService.resolveDualTrackKbIds(null)).isNull();
 
         // 2. 插入一个官方智库（is_system=1），但尚无已向量化文档 -> 不应被拼入
-        jdbc.update("INSERT INTO knowledge_base (user_id, name, status, is_system, deleted) VALUES (1, '官方空库', 1, 1, 0)");
-        Long emptySysKbId = jdbc.queryForObject("SELECT id FROM knowledge_base WHERE name = '官方空库'", Long.class);
+        Long emptySysKbId = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
+        jdbc.update("INSERT INTO knowledge_base (id, user_id, name, status, is_system, deleted) VALUES (?, 1, '官方空库', 1, 1, 0)", emptySysKbId);
         assertThat(knowledgeBaseService.resolveDualTrackKbIds(kbId)).isEqualTo(String.valueOf(kbId));
 
         // 3. 给官方智库插入一篇 vector_status='SUCCESS' 的文档 -> 自动拼入双路检索
         jdbc.update("""
-                INSERT INTO document (user_id, knowledge_base_id, file_name, file_type, file_url, file_size,
+                INSERT INTO document (id, user_id, knowledge_base_id, file_name, file_type, file_url, file_size,
                                       parse_status, chunk_status, vector_status, deleted)
-                VALUES (1, ?, '大厂真题.md', 'MD', 'docs/test.md', 1024, 'SUCCESS', 'SUCCESS', 'SUCCESS', 0)
-                """, emptySysKbId);
+                VALUES (?, 1, ?, '大厂真题.md', 'MD', 'docs/test.md', 1024, 'SUCCESS', 'SUCCESS', 'SUCCESS', 0)
+                """, com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), emptySysKbId);
 
         assertThat(knowledgeBaseService.resolveDualTrackKbIds(kbId))
                 .isEqualTo(kbId + "," + emptySysKbId);

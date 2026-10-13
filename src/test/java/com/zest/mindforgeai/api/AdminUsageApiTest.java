@@ -29,12 +29,12 @@ class AdminUsageApiTest extends AbstractApiTest {
                              int prompt, int completion, int daysAgo, Long userId) {
         jdbc.update("""
                 INSERT INTO ai_usage_record
-                    (user_id, request_id, scene, provider, model_name,
+                    (id, user_id, request_id, scene, provider, model_name,
                      prompt_tokens, completion_tokens, total_tokens,
                      duration_ms, status, created_at)
-                VALUES (?, 'trace-x', ?, 'dashscope', ?, ?, ?, ?, 1000, ?,
+                VALUES (?, ?, 'trace-x', ?, 'dashscope', ?, ?, ?, ?, 1000, ?,
                         DATE_SUB(NOW(), INTERVAL ? DAY))
-                """, userId, scene, model, prompt, completion, prompt + completion, status, daysAgo);
+                """, com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), userId, scene, model, prompt, completion, prompt + completion, status, daysAgo);
     }
 
     /** ⚠️ 名字不能叫 get —— 会和基类的 protected get(path, token) 撞签名，

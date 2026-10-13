@@ -22,11 +22,11 @@
     -->
     <insert id="batchInsert">
         INSERT INTO document_chunk
-            (user_id, knowledge_base_id, document_id, chunk_index,
+            (id, user_id, knowledge_base_id, document_id, chunk_index,
              content, token_count, page_no, vector_id, metadata_json, created_at)
         VALUES
         <foreach collection="list" item="it" separator=",">
-            (#{it.userId}, #{it.knowledgeBaseId}, #{it.documentId}, #{it.chunkIndex},
+            (#{it.id}, #{it.userId}, #{it.knowledgeBaseId}, #{it.documentId}, #{it.chunkIndex},
              #{it.content}, #{it.tokenCount}, #{it.pageNo}, #{it.vectorId}, #{it.metadataJson}, NOW())
         </foreach>
     </insert>

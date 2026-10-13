@@ -161,15 +161,14 @@ public abstract class AbstractApiTest {
         if (exists != null && exists > 0) {
             return;
         }
+        long newUserId = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
         jdbc.update("""
-                INSERT INTO `user` (username, email, password_hash, nickname, status,
+                INSERT INTO `user` (id, username, email, password_hash, nickname, status,
                                     created_at, updated_at, deleted)
-                VALUES (?, ?, ?, ?, 1, NOW(), NOW(), 0)
-                """, username, username + "@test.local", passwordEncoder.encode(TEST_PASSWORD), username);
-        Long userId = jdbc.queryForObject(
-                "SELECT id FROM `user` WHERE username = ?", Long.class, username);
-        jdbc.update("INSERT INTO sys_user_role (user_id, role_id, created_at) VALUES (?, ?, NOW())",
-                userId, roleId);
+                VALUES (?, ?, ?, ?, ?, 1, NOW(), NOW(), 0)
+                """, newUserId, username, username + "@test.local", passwordEncoder.encode(TEST_PASSWORD), username);
+        jdbc.update("INSERT INTO sys_user_role (id, user_id, role_id, created_at) VALUES (?, ?, ?, NOW())",
+                com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), newUserId, roleId);
     }
 
     /** 按用户名查 id —— 断言归属时用得上。 */

@@ -29,7 +29,7 @@ public class SysAuditLog implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "主键")
-    @TableId(value = "id", type = IdType.AUTO)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
 
     @Schema(description = "操作人用户 id，关联 user.id（无外键）；系统自动触发时为 null")

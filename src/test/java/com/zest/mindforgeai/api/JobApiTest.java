@@ -150,10 +150,10 @@ class JobApiTest extends AbstractApiTest {
         // 造一条匹配分析记录，验证它也会被清掉
         // ⚠️ 这张表没有 updated_at 列（只有 created_at）
         jdbc.update("""
-                INSERT INTO resume_job_analysis (user_id, resume_id, job_id, overall_score,
+                INSERT INTO resume_job_analysis (id, user_id, resume_id, job_id, overall_score,
                                                  match_items_json, created_at)
-                VALUES (?, 999999, ?, 50.0, '[]', NOW())
-                """, userId(USER_NAME), jobId);
+                VALUES (?, ?, 999999, ?, 50.0, '[]', NOW())
+                """, com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), userId(USER_NAME), jobId);
 
         delete("/app/jobs/" + jobId, token).assertSuccess();
 

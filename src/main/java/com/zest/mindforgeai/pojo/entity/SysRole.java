@@ -29,7 +29,7 @@ public class SysRole implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "不同角色(role)id")
-    @TableId(value = "id", type = IdType.AUTO)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
 
     @Schema(description = "角色(role),用户、管理员")

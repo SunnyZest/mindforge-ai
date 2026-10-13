@@ -27,7 +27,7 @@ public class ChatMessage implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    @TableId(value = "id", type = IdType.AUTO)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
 
     @Schema(description = "与对话表的id字段关联")

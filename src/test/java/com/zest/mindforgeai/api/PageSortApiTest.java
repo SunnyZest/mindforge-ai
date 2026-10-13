@@ -203,10 +203,10 @@ class PageSortApiTest extends AbstractApiTest {
         long docId = Long.parseLong(docIdText);
         // 直接造几条分块，免得等异步流水线
         for (int i = 1; i <= 3; i++) {
-            jdbc.update("INSERT INTO document_chunk (user_id, knowledge_base_id, document_id, "
+            jdbc.update("INSERT INTO document_chunk (id, user_id, knowledge_base_id, document_id, "
                             + "chunk_index, content, token_count, created_at) "
-                            + "VALUES (?, ?, ?, ?, ?, 10, NOW())",
-                    userId(USER_NAME), kbId, docId, i, "第 " + i + " 块");
+                            + "VALUES (?, ?, ?, ?, ?, ?, 10, NOW())",
+                    com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), userId(USER_NAME), kbId, docId, i, "第 " + i + " 块");
         }
 
         List<Integer> indexes = new ArrayList<>();

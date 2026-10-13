@@ -39,7 +39,7 @@ public class SysPrompt implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "主键")
-    @TableId(value = "id", type = IdType.AUTO)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
 
     @Schema(description = "场景：RAG_CHAT / RESUME_PARSE 等（大写）")

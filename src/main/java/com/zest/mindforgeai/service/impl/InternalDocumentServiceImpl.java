@@ -125,8 +125,13 @@ public class InternalDocumentServiceImpl implements InternalDocumentService {
         // 先删后插 —— 重复处理同一份文档时不会撞 uk_doc_chunk_index
         chunkMapper.deleteByDocumentId(documentId);
 
+        if (dto.getChunks() == null || dto.getChunks().isEmpty()) {
+            return 0;
+        }
+
         List<DocumentChunk> chunks = dto.getChunks().stream()
                 .map(item -> new DocumentChunk()
+                        .setId(com.baomidou.mybatisplus.core.toolkit.IdWorker.getId())
                         .setUserId(doc.getUserId())
                         .setKnowledgeBaseId(doc.getKnowledgeBaseId())
                         .setDocumentId(documentId)

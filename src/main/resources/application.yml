@@ -47,7 +47,7 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
     db-config:
-      id-type: auto   # id的生成策略
+      id-type: assign_id   # id的生成策略（雪花算法 64 位趋势递增分布式 ID）
       logic-delete-field: deleted
       logic-delete-value: 1
       logic-not-delete-value: 0

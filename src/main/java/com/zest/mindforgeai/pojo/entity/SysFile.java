@@ -27,7 +27,7 @@ public class SysFile implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Schema(description = "主键")
-    @TableId(value = "id", type = IdType.AUTO)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
 
     @Schema(description = "上传者用户 id，逻辑关联 user.id")
