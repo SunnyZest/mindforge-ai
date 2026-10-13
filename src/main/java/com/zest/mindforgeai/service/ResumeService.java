@@ -1,6 +1,7 @@
 package com.zest.mindforgeai.service;
 
 import com.zest.mindforgeai.pojo.dto.ResumeOptimizeDTO;
+import com.zest.mindforgeai.pojo.dto.ResumeUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.ResumeDetailVO;
 import com.zest.mindforgeai.pojo.vo.ResumeOptimizeVO;
@@ -93,6 +94,11 @@ public interface ResumeService {
      *         AI 服务不可用（502、504）
      */
     ResumeOptimizeVO optimize(Long id, ResumeOptimizeDTO dto);
+
+    /**
+     * 在线精修或采纳 AI 优化建议后更新简历内容。
+     */
+    ResumeDetailVO update(Long id, ResumeUpdateDTO dto);
 
     /**
      * 删除简历（逻辑删除 {@code resume} + 软删 {@code sys_file}）。

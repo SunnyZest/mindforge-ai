@@ -23,6 +23,7 @@ import com.zest.mindforgeai.mapper.ResumeMapper;
 import com.zest.mindforgeai.mapper.ResumeJobAnalysisMapper;
 import com.zest.mindforgeai.mapper.ResumeSkillMapper;
 import com.zest.mindforgeai.pojo.dto.ResumeOptimizeDTO;
+import com.zest.mindforgeai.pojo.dto.ResumeUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.Resume;
 import com.zest.mindforgeai.pojo.entity.ResumeJobAnalysis;
 import com.zest.mindforgeai.pojo.entity.ResumeSkill;
@@ -324,6 +325,43 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
         }
 
         return getParsed(id);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResumeDetailVO update(Long id, ResumeUpdateDTO dto) {
+        Resume resume = requireOwned(id);
+        if (dto == null) {
+            return getDetail(id);
+        }
+
+        LambdaUpdateWrapper<Resume> wrapper = new LambdaUpdateWrapper<Resume>()
+                .eq(Resume::getId, id)
+                .set(Resume::getUpdatedAt, LocalDateTime.now());
+
+        if (StringUtils.hasText(dto.getName())) {
+            String trimmed = dto.getName().trim();
+            wrapper.set(Resume::getName, trimmed.length() > MAX_NAME_LEN
+                    ? trimmed.substring(0, MAX_NAME_LEN) : trimmed);
+        }
+        if (dto.getTargetPosition() != null) {
+            String tp = dto.getTargetPosition().trim();
+            wrapper.set(Resume::getTargetPosition, tp.isEmpty() ? null : tp);
+        }
+        if (dto.getSummary() != null) {
+            wrapper.set(Resume::getSummary, dto.getSummary().trim());
+        }
+        if (dto.getRawContent() != null) {
+            wrapper.set(Resume::getRawContent, dto.getRawContent());
+        }
+        if (dto.getStructuredJson() != null) {
+            wrapper.set(Resume::getStructuredJson, dto.getStructuredJson().toString());
+        }
+
+        update(wrapper);
+
+        log.info("简历内容更新 resumeId={} userId={}", id, resume.getUserId());
+        return getDetail(id);
     }
 
     @Override

@@ -2,6 +2,7 @@ package com.zest.mindforgeai.controller.user;
 
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.ResumeOptimizeDTO;
+import com.zest.mindforgeai.pojo.dto.ResumeUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.ResumeDetailVO;
 import com.zest.mindforgeai.pojo.vo.ResumeOptimizeVO;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -137,6 +139,14 @@ public class ResumeController {
     public Result<ResumeOptimizeVO> optimize(@PathVariable Long id,
                                              @Valid @RequestBody(required = false) ResumeOptimizeDTO dto) {
         return Result.success(resumeService.optimize(id, dto));
+    }
+
+    @Operation(summary = "在线精修或采纳 AI 建议后更新简历内容")
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('app:resume:write')")
+    public Result<ResumeDetailVO> update(@PathVariable Long id,
+                                         @Valid @RequestBody ResumeUpdateDTO dto) {
+        return Result.success(resumeService.update(id, dto));
     }
 
     @Operation(summary = "删除简历")
