@@ -53,6 +53,39 @@ public class JobController {
         return Result.success(jobService.pageJobs(page, pageSize, keyword, sortBy, sortOrder));
     }
 
+    @Operation(summary = "求职投递看板各阶段分列卡片数据")
+    @GetMapping("/kanban")
+    @PreAuthorize("hasAuthority('app:job:read')")
+    public Result<java.util.List<com.zest.mindforgeai.pojo.vo.JobKanbanColumnVO>> kanban(
+            @RequestParam(required = false) String keyword) {
+        return Result.success(jobService.getKanbanBoard(keyword));
+    }
+
+    @Operation(summary = "求职投递看板统计数据概览")
+    @GetMapping("/kanban/stats")
+    @PreAuthorize("hasAuthority('app:job:read')")
+    public Result<com.zest.mindforgeai.pojo.vo.JobKanbanStatsVO> kanbanStats() {
+        return Result.success(jobService.getKanbanStats());
+    }
+
+    @Operation(summary = "快捷拖拽/变更职位投递阶段")
+    @PutMapping("/{id}/stage")
+    @PreAuthorize("hasAuthority('app:job:write')")
+    public Result<com.zest.mindforgeai.pojo.vo.JobKanbanCardVO> updateStage(
+            @PathVariable Long id,
+            @Valid @RequestBody com.zest.mindforgeai.pojo.dto.JobStageUpdateDTO dto) {
+        return Result.success(jobService.updateStage(id, dto));
+    }
+
+    @Operation(summary = "更新职位求职 CRM 跟进信息")
+    @PutMapping("/{id}/crm")
+    @PreAuthorize("hasAuthority('app:job:write')")
+    public Result<com.zest.mindforgeai.pojo.vo.JobKanbanCardVO> updateCrm(
+            @PathVariable Long id,
+            @Valid @RequestBody com.zest.mindforgeai.pojo.dto.JobCrmUpdateDTO dto) {
+        return Result.success(jobService.updateCrm(id, dto));
+    }
+
     @Operation(summary = "职位详情")
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('app:job:read')")

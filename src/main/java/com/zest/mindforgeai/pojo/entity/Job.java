@@ -69,6 +69,21 @@ public class Job implements Serializable {
     @Schema(description = "解析状态：PENDING / PARSING / SUCCESS / FAILED")
     private String parseStatus;
 
+    @Schema(description = "投递阶段：WISHLIST/APPLIED/SCREENING/INTERVIEW_1/INTERVIEW_2/HR/OFFER/REJECTED")
+    private String applicationStage;
+
+    @Schema(description = "绑定的目标简历 id")
+    private Long linkedResumeId;
+
+    @Schema(description = "薪资范围或 Offer 年薪包")
+    private String salaryOffer;
+
+    @Schema(description = "下一场笔试/面试提醒时间")
+    private LocalDateTime nextActionAt;
+
+    @Schema(description = "求职跟进备注")
+    private String crmNotes;
+
     /** 解析失败原因，成功时为 null。理由同 {@link Resume#getErrorMessage()} */
     @Schema(description = "解析失败原因（最近一次）；成功时为 null")
     private String errorMessage;

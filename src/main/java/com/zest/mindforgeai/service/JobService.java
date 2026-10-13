@@ -56,4 +56,16 @@ public interface JobService {
      *         职位不存在 / 没有 JD 正文 / 正在解析中（40902）/ AI 服务不可用
      */
     JobDetailVO parse(Long id);
+
+    /** 获取求职投递看板各阶段分列卡片数据 */
+    java.util.List<com.zest.mindforgeai.pojo.vo.JobKanbanColumnVO> getKanbanBoard(String keyword);
+
+    /** 获取求职投递看板统计数据概览 */
+    com.zest.mindforgeai.pojo.vo.JobKanbanStatsVO getKanbanStats();
+
+    /** 快速拖拽/变更职位投递阶段 */
+    com.zest.mindforgeai.pojo.vo.JobKanbanCardVO updateStage(Long id, com.zest.mindforgeai.pojo.dto.JobStageUpdateDTO dto);
+
+    /** 更新职位求职 CRM 跟进信息（投递阶段、绑定简历、薪资包、面试日程提醒、跟进备注） */
+    com.zest.mindforgeai.pojo.vo.JobKanbanCardVO updateCrm(Long id, com.zest.mindforgeai.pojo.dto.JobCrmUpdateDTO dto);
 }

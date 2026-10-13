@@ -15,15 +15,26 @@ import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
+import com.zest.mindforgeai.mapper.InterviewMapper;
+import com.zest.mindforgeai.mapper.InterviewReportMapper;
 import com.zest.mindforgeai.mapper.JobMapper;
 import com.zest.mindforgeai.mapper.JobSkillMapper;
 import com.zest.mindforgeai.mapper.ResumeJobAnalysisMapper;
+import com.zest.mindforgeai.mapper.ResumeMapper;
 import com.zest.mindforgeai.pojo.dto.JobCreateDTO;
+import com.zest.mindforgeai.pojo.dto.JobCrmUpdateDTO;
+import com.zest.mindforgeai.pojo.dto.JobStageUpdateDTO;
 import com.zest.mindforgeai.pojo.dto.JobUpdateDTO;
+import com.zest.mindforgeai.pojo.entity.Interview;
+import com.zest.mindforgeai.pojo.entity.InterviewReport;
 import com.zest.mindforgeai.pojo.entity.Job;
 import com.zest.mindforgeai.pojo.entity.JobSkill;
+import com.zest.mindforgeai.pojo.entity.Resume;
 import com.zest.mindforgeai.pojo.entity.ResumeJobAnalysis;
 import com.zest.mindforgeai.pojo.vo.JobDetailVO;
+import com.zest.mindforgeai.pojo.vo.JobKanbanCardVO;
+import com.zest.mindforgeai.pojo.vo.JobKanbanColumnVO;
+import com.zest.mindforgeai.pojo.vo.JobKanbanStatsVO;
 import com.zest.mindforgeai.pojo.vo.JobVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.service.AuditService;
@@ -36,9 +47,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 职位 JD 服务实现
@@ -58,6 +74,29 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     private static final String SUCCESS = "SUCCESS";
     private static final String FAILED = "FAILED";
 
+    /** 看板 8 个流转阶段标准定义与显示名称 */
+    public static final List<String> KANBAN_STAGES = List.of(
+            "WISHLIST",
+            "APPLIED",
+            "SCREENING",
+            "INTERVIEW_1",
+            "INTERVIEW_2",
+            "HR",
+            "OFFER",
+            "REJECTED"
+    );
+
+    public static final Map<String, String> STAGE_TITLES = Map.of(
+            "WISHLIST", "心愿 / 待投递",
+            "APPLIED", "已投递",
+            "SCREENING", "初筛 / 笔试",
+            "INTERVIEW_1", "技术一面",
+            "INTERVIEW_2", "技术二面 / 终面",
+            "HR", "HR 面 / 谈薪",
+            "OFFER", "已获 Offer 🎉",
+            "REJECTED", "未通过 / 已归档"
+    );
+
     /** 与 job.error_message varchar(500) 对齐 */
     private static final int MAX_ERROR_LEN = 500;
 
@@ -74,6 +113,9 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     private final AiServiceClient aiServiceClient;
     private final JobSkillMapper jobSkillMapper;
     private final ResumeJobAnalysisMapper resumeJobAnalysisMapper;
+    private final ResumeMapper resumeMapper;
+    private final InterviewMapper interviewMapper;
+    private final InterviewReportMapper interviewReportMapper;
     private final TransactionTemplate transactionTemplate;
 
     public JobServiceImpl(AuditService auditService,
@@ -81,12 +123,18 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
                           AiServiceClient aiServiceClient,
                           JobSkillMapper jobSkillMapper,
                           ResumeJobAnalysisMapper resumeJobAnalysisMapper,
+                          ResumeMapper resumeMapper,
+                          InterviewMapper interviewMapper,
+                          InterviewReportMapper interviewReportMapper,
                           TransactionTemplate transactionTemplate) {
         this.auditService = auditService;
         this.objectMapper = objectMapper;
         this.aiServiceClient = aiServiceClient;
         this.jobSkillMapper = jobSkillMapper;
         this.resumeJobAnalysisMapper = resumeJobAnalysisMapper;
+        this.resumeMapper = resumeMapper;
+        this.interviewMapper = interviewMapper;
+        this.interviewReportMapper = interviewReportMapper;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -173,7 +221,16 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
                         Job::getEducationRequired, dto.getEducationRequired())
                 .set(dto.getJobDescription() != null, Job::getRawContent, dto.getJobDescription())
                 .set(dto.getStatus() != null, Job::getStatus, dto.getStatus())
+                .set(StringUtils.hasText(dto.getApplicationStage()), Job::getApplicationStage, dto.getApplicationStage())
+                .set(dto.getSalaryOffer() != null, Job::getSalaryOffer, dto.getSalaryOffer())
+                .set(dto.getNextActionAt() != null, Job::getNextActionAt, dto.getNextActionAt())
+                .set(dto.getCrmNotes() != null, Job::getCrmNotes, dto.getCrmNotes())
                 .set(Job::getUpdatedAt, LocalDateTime.now());
+
+        if (dto.getLinkedResumeId() != null) {
+            Long rid = StringUtils.hasText(dto.getLinkedResumeId()) ? Long.parseLong(dto.getLinkedResumeId().trim()) : null;
+            wrapper.set(Job::getLinkedResumeId, rid);
+        }
 
         if (contentChanged) {
             wrapper.set(Job::getParseStatus, PENDING)
@@ -376,5 +433,276 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
 
     private static <T> List<T> nullToEmpty(List<T> list) {
         return list == null ? List.of() : list;
+    }
+
+    @Override
+    public List<JobKanbanColumnVO> getKanbanBoard(String keyword) {
+        Long userId = SecurityUtils.getUserId();
+        String safeKeyword = SortSupport.escapeLike(keyword);
+
+        LambdaQueryWrapper<Job> wrapper = new LambdaQueryWrapper<Job>()
+                .eq(Job::getUserId, userId)
+                .and(StringUtils.hasText(safeKeyword), w -> w
+                        .like(Job::getTitle, safeKeyword).or()
+                        .like(Job::getCompanyName, safeKeyword))
+                .orderByAsc(Job::getNextActionAt)
+                .orderByDesc(Job::getUpdatedAt)
+                .orderByDesc(Job::getId);
+
+        List<Job> allJobs = list(wrapper);
+        if (allJobs.isEmpty()) {
+            return KANBAN_STAGES.stream()
+                    .map(st -> new JobKanbanColumnVO(st, STAGE_TITLES.getOrDefault(st, st), 0, List.of()))
+                    .toList();
+        }
+
+        List<Long> jobIds = allJobs.stream().map(Job::getId).toList();
+        Set<Long> resumeIds = allJobs.stream()
+                .map(Job::getLinkedResumeId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        // 1. 批量加载关联简历名称
+        Map<Long, String> resumeNameMap = new HashMap<>();
+        if (!resumeIds.isEmpty()) {
+            List<Resume> resumes = resumeMapper.selectList(new LambdaQueryWrapper<Resume>()
+                    .select(Resume::getId, Resume::getName)
+                    .in(Resume::getId, resumeIds));
+            for (Resume r : resumes) {
+                resumeNameMap.put(r.getId(), r.getName());
+            }
+        }
+
+        // 2. 批量加载最高简历匹配得分
+        Map<Long, Double> matchScoreMap = new HashMap<>();
+        List<ResumeJobAnalysis> analyses = resumeJobAnalysisMapper.selectList(new LambdaQueryWrapper<ResumeJobAnalysis>()
+                .select(ResumeJobAnalysis::getJobId, ResumeJobAnalysis::getOverallScore)
+                .eq(ResumeJobAnalysis::getUserId, userId)
+                .in(ResumeJobAnalysis::getJobId, jobIds)
+                .isNotNull(ResumeJobAnalysis::getOverallScore)
+                .orderByDesc(ResumeJobAnalysis::getOverallScore));
+        for (ResumeJobAnalysis a : analyses) {
+            matchScoreMap.putIfAbsent(a.getJobId(), a.getOverallScore() == null ? null : a.getOverallScore().doubleValue());
+        }
+
+        // 3. 批量加载模拟面试场次与最高面试得分
+        Map<Long, Integer> interviewCountMap = new HashMap<>();
+        Map<Long, Double> bestScoreMap = new HashMap<>();
+        List<Interview> interviews = interviewMapper.selectList(new LambdaQueryWrapper<Interview>()
+                .select(Interview::getId, Interview::getJobId)
+                .eq(Interview::getUserId, userId)
+                .in(Interview::getJobId, jobIds));
+        if (!interviews.isEmpty()) {
+            Map<Long, Long> interviewToJobMap = new HashMap<>();
+            List<Long> interviewIds = new ArrayList<>();
+            for (Interview iv : interviews) {
+                if (iv.getJobId() == null) continue;
+                interviewCountMap.merge(iv.getJobId(), 1, Integer::sum);
+                interviewToJobMap.put(iv.getId(), iv.getJobId());
+                interviewIds.add(iv.getId());
+            }
+            if (!interviewIds.isEmpty()) {
+                List<InterviewReport> reports = interviewReportMapper.selectList(new LambdaQueryWrapper<InterviewReport>()
+                        .select(InterviewReport::getInterviewId, InterviewReport::getOverallScore)
+                        .in(InterviewReport::getInterviewId, interviewIds));
+                for (InterviewReport rep : reports) {
+                    if (rep.getOverallScore() == null) continue;
+                    Long jId = interviewToJobMap.get(rep.getInterviewId());
+                    if (jId != null) {
+                        bestScoreMap.merge(jId, rep.getOverallScore().doubleValue(), Math::max);
+                    }
+                }
+            }
+        }
+
+        // 4. 按阶段分桶
+        Map<String, List<JobKanbanCardVO>> columnCards = new HashMap<>();
+        for (String st : KANBAN_STAGES) {
+            columnCards.put(st, new ArrayList<>());
+        }
+
+        for (Job job : allJobs) {
+            String stage = job.getApplicationStage();
+            if (!KANBAN_STAGES.contains(stage)) {
+                stage = "WISHLIST";
+            }
+            JobKanbanCardVO card = toCardVO(job, resumeNameMap, matchScoreMap, interviewCountMap, bestScoreMap);
+            columnCards.get(stage).add(card);
+        }
+
+        return KANBAN_STAGES.stream()
+                .map(st -> {
+                    List<JobKanbanCardVO> list = columnCards.get(st);
+                    return new JobKanbanColumnVO(st, STAGE_TITLES.getOrDefault(st, st), list.size(), list);
+                })
+                .toList();
+    }
+
+    @Override
+    public JobKanbanStatsVO getKanbanStats() {
+        Long userId = SecurityUtils.getUserId();
+        List<Job> allJobs = list(new LambdaQueryWrapper<Job>()
+                .select(Job::getId, Job::getApplicationStage, Job::getNextActionAt)
+                .eq(Job::getUserId, userId));
+
+        JobKanbanStatsVO stats = new JobKanbanStatsVO();
+        stats.setTotalTracked((long) allJobs.size());
+
+        long appliedCount = allJobs.stream()
+                .filter(j -> !"WISHLIST".equalsIgnoreCase(j.getApplicationStage()))
+                .count();
+        stats.setAppliedCount(appliedCount);
+
+        long interviewingCount = allJobs.stream()
+                .filter(j -> {
+                    String st = j.getApplicationStage();
+                    return "INTERVIEW_1".equalsIgnoreCase(st) || "INTERVIEW_2".equalsIgnoreCase(st) || "HR".equalsIgnoreCase(st);
+                })
+                .count();
+        stats.setInterviewingCount(interviewingCount);
+
+        long offerCount = allJobs.stream()
+                .filter(j -> "OFFER".equalsIgnoreCase(j.getApplicationStage()))
+                .count();
+        stats.setOfferCount(offerCount);
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime in7Days = now.plusDays(7);
+        long upcoming = allJobs.stream()
+                .filter(j -> j.getNextActionAt() != null && !j.getNextActionAt().isBefore(now) && !j.getNextActionAt().isAfter(in7Days))
+                .count();
+        stats.setUpcomingScheduleCount(upcoming);
+
+        return stats;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public JobKanbanCardVO updateStage(Long id, JobStageUpdateDTO dto) {
+        Job job = requireOwned(id);
+        String stage = dto.getStage().trim().toUpperCase();
+        job.setApplicationStage(stage);
+        updateById(job);
+
+        auditService.recordSuccess("JOB_STAGE_UPDATE",
+                AuditConstants.RESOURCE_JOB, String.valueOf(id),
+                Map.of("stage", stage));
+
+        return getCardVO(job);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public JobKanbanCardVO updateCrm(Long id, JobCrmUpdateDTO dto) {
+        Job job = requireOwned(id);
+
+        if (StringUtils.hasText(dto.getApplicationStage())) {
+            job.setApplicationStage(dto.getApplicationStage().trim().toUpperCase());
+        }
+        if (dto.getLinkedResumeId() != null) {
+            if (StringUtils.hasText(dto.getLinkedResumeId())) {
+                try {
+                    long rid = Long.parseLong(dto.getLinkedResumeId().trim());
+                    Resume resume = resumeMapper.selectById(rid);
+                    if (resume == null || !resume.getUserId().equals(SecurityUtils.getUserId())) {
+                        throw new BizException(ErrorCode.PARAM_INVALID, "所选简历不存在或不属于当前用户");
+                    }
+                    job.setLinkedResumeId(rid);
+                } catch (NumberFormatException e) {
+                    throw new BizException(ErrorCode.PARAM_INVALID, "非法的简历 ID");
+                }
+            } else {
+                job.setLinkedResumeId(null);
+            }
+        }
+        if (dto.getSalaryOffer() != null) {
+            job.setSalaryOffer(dto.getSalaryOffer().trim());
+        }
+        if (dto.getNextActionAt() != null) {
+            job.setNextActionAt(dto.getNextActionAt());
+        }
+        if (dto.getCrmNotes() != null) {
+            job.setCrmNotes(dto.getCrmNotes().trim());
+        }
+        updateById(job);
+
+        auditService.recordSuccess("JOB_CRM_UPDATE",
+                AuditConstants.RESOURCE_JOB, String.valueOf(id),
+                Map.of("stage", job.getApplicationStage() == null ? "" : job.getApplicationStage()));
+
+        return getCardVO(job);
+    }
+
+    private JobKanbanCardVO getCardVO(Job job) {
+        Map<Long, String> resumeMap = new HashMap<>();
+        if (job.getLinkedResumeId() != null) {
+            Resume r = resumeMapper.selectById(job.getLinkedResumeId());
+            if (r != null) {
+                resumeMap.put(r.getId(), r.getName());
+            }
+        }
+
+        Map<Long, Double> matchScoreMap = new HashMap<>();
+        ResumeJobAnalysis a = resumeJobAnalysisMapper.selectOne(new LambdaQueryWrapper<ResumeJobAnalysis>()
+                .select(ResumeJobAnalysis::getOverallScore)
+                .eq(ResumeJobAnalysis::getUserId, job.getUserId())
+                .eq(ResumeJobAnalysis::getJobId, job.getId())
+                .isNotNull(ResumeJobAnalysis::getOverallScore)
+                .orderByDesc(ResumeJobAnalysis::getOverallScore)
+                .last("LIMIT 1"));
+        if (a != null && a.getOverallScore() != null) {
+            matchScoreMap.put(job.getId(), a.getOverallScore().doubleValue());
+        }
+
+        Map<Long, Integer> countMap = new HashMap<>();
+        Map<Long, Double> bestScoreMap = new HashMap<>();
+        List<Interview> ivs = interviewMapper.selectList(new LambdaQueryWrapper<Interview>()
+                .select(Interview::getId, Interview::getJobId)
+                .eq(Interview::getUserId, job.getUserId())
+                .eq(Interview::getJobId, job.getId()));
+        if (!ivs.isEmpty()) {
+            countMap.put(job.getId(), ivs.size());
+            List<Long> ivIds = ivs.stream().map(Interview::getId).toList();
+            List<InterviewReport> reps = interviewReportMapper.selectList(new LambdaQueryWrapper<InterviewReport>()
+                    .select(InterviewReport::getOverallScore)
+                    .in(InterviewReport::getInterviewId, ivIds));
+            for (InterviewReport rep : reps) {
+                if (rep.getOverallScore() != null) {
+                    bestScoreMap.merge(job.getId(), rep.getOverallScore().doubleValue(), Math::max);
+                }
+            }
+        }
+
+        return toCardVO(job, resumeMap, matchScoreMap, countMap, bestScoreMap);
+    }
+
+    private JobKanbanCardVO toCardVO(Job job,
+                                     Map<Long, String> resumeNameMap,
+                                     Map<Long, Double> matchScoreMap,
+                                     Map<Long, Integer> interviewCountMap,
+                                     Map<Long, Double> bestScoreMap) {
+        JobKanbanCardVO card = new JobKanbanCardVO();
+        card.setId(String.valueOf(job.getId()));
+        card.setTitle(job.getTitle());
+        card.setCompanyName(job.getCompanyName());
+        card.setLocation(job.getLocation());
+        card.setExperienceRequired(job.getExperienceRequired());
+        card.setEducationRequired(job.getEducationRequired());
+        card.setParseStatus(job.getParseStatus());
+        String stage = job.getApplicationStage();
+        card.setApplicationStage(KANBAN_STAGES.contains(stage) ? stage : "WISHLIST");
+        if (job.getLinkedResumeId() != null) {
+            card.setLinkedResumeId(String.valueOf(job.getLinkedResumeId()));
+            card.setLinkedResumeName(resumeNameMap.get(job.getLinkedResumeId()));
+        }
+        card.setSalaryOffer(job.getSalaryOffer());
+        card.setNextActionAt(job.getNextActionAt());
+        card.setCrmNotes(job.getCrmNotes());
+        card.setMatchScore(matchScoreMap.get(job.getId()));
+        card.setInterviewCount(interviewCountMap.getOrDefault(job.getId(), 0));
+        card.setBestInterviewScore(bestScoreMap.get(job.getId()));
+        card.setCreatedAt(job.getCreatedAt());
+        card.setUpdatedAt(job.getUpdatedAt());
+        return card;
     }
 }

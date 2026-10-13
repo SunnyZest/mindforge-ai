@@ -57,6 +57,21 @@ public class JobDetailVO {
     @Schema(description = "解析状态")
     private String parseStatus;
 
+    @Schema(description = "投递阶段：WISHLIST/APPLIED/SCREENING/INTERVIEW_1/INTERVIEW_2/HR/OFFER/REJECTED")
+    private String applicationStage;
+
+    @Schema(description = "绑定的目标简历 id")
+    private String linkedResumeId;
+
+    @Schema(description = "薪资范围或 Offer 年薪包")
+    private String salaryOffer;
+
+    @Schema(description = "下一场笔试/面试提醒时间")
+    private LocalDateTime nextActionAt;
+
+    @Schema(description = "求职跟进备注")
+    private String crmNotes;
+
     @Schema(description = "解析失败原因；非 FAILED 状态时为 null")
     private String errorMessage;
 
@@ -81,6 +96,11 @@ public class JobDetailVO {
         vo.setRawContent(job.getRawContent());
         vo.setStructuredJson(structuredJson);
         vo.setParseStatus(job.getParseStatus());
+        vo.setApplicationStage(job.getApplicationStage() == null ? "WISHLIST" : job.getApplicationStage());
+        vo.setLinkedResumeId(job.getLinkedResumeId() == null ? null : String.valueOf(job.getLinkedResumeId()));
+        vo.setSalaryOffer(job.getSalaryOffer());
+        vo.setNextActionAt(job.getNextActionAt());
+        vo.setCrmNotes(job.getCrmNotes());
         vo.setErrorMessage(job.getErrorMessage());
         vo.setStatus(job.getStatus());
         vo.setCreatedAt(job.getCreatedAt());
