@@ -82,7 +82,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
         IPage<KnowledgeBase> result = baseMapper.selectPageWithDocumentCount(
                 pageParam,
                 SecurityUtils.getUserId(),
-                keyword,
+                SortSupport.escapeLike(keyword),
                 status);
 
         return PageResultVO.of(result,
@@ -184,7 +184,10 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     public String resolveDualTrackKbIds(Long primaryKbId) {
         Set<Long> kbIds = new LinkedHashSet<>();
         if (primaryKbId != null && primaryKbId > 0) {
-            kbIds.add(primaryKbId);
+            KnowledgeBase primaryKb = getById(primaryKbId);
+            if (primaryKb != null && Integer.valueOf(1).equals(primaryKb.getStatus())) {
+                kbIds.add(primaryKbId);
+            }
         }
 
         List<KnowledgeBase> systemKbs = lambdaQuery()
@@ -211,14 +214,15 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     /* ---------- 内部工具 ---------- */
 
     /**
-     * 校验知识库访问权限：本人私有库 或 官方全局共享库。
+     * 校验知识库访问权限：本人私有库 或 已启用的官方全局共享库。
      */
     private KnowledgeBase requireAccessible(Long id) {
         KnowledgeBase kb = getById(id);
         if (kb == null) {
             throw new BizException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND);
         }
-        if (kb.getUserId().equals(SecurityUtils.getUserId()) || Integer.valueOf(1).equals(kb.getIsSystem())) {
+        if (kb.getUserId().equals(SecurityUtils.getUserId())
+                || (Integer.valueOf(1).equals(kb.getIsSystem()) && Integer.valueOf(1).equals(kb.getStatus()))) {
             return kb;
         }
         throw new BizException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND);

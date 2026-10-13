@@ -226,7 +226,7 @@ public class ChatServiceImpl implements ChatService {
     @Override
     public RagSearchVO search(RagSearchDTO dto) {
         // 校验知识库访问权限（本人私有库 或 官方全局智库）
-        Long kbId = Long.valueOf(dto.getKnowledgeBaseId());
+        Long kbId = parseRequiredId(dto.getKnowledgeBaseId(), "知识库 id");
         knowledgeBaseService.getAccessible(kbId);
 
         String effectiveKbIds = knowledgeBaseService.resolveDualTrackKbIds(kbId);
@@ -246,7 +246,7 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void feedback(RagFeedbackDTO dto) {
-        Long messageId = Long.valueOf(dto.getMessageId());
+        Long messageId = parseRequiredId(dto.getMessageId(), "消息 id");
         ChatMessage message = messageMapper.selectById(messageId);
         if (message == null) {
             throw new BizException(ErrorCode.MESSAGE_NOT_FOUND);
@@ -409,6 +409,10 @@ public class ChatServiceImpl implements ChatService {
                 log.warn("AI 服务返回的引用缺少 documentId，已跳过：{}", src);
                 continue;
             }
+            if (!nameMap.containsKey(documentId)) {
+                log.warn("引用所属文档不存在或已删除（documentId={}），已跳过", documentId);
+                continue;
+            }
 
             Long chunkId = chunkIdMap.get(chunkKey(documentId, src.chunkIndex()));
             if (chunkId == null) {
@@ -442,6 +446,21 @@ public class ChatServiceImpl implements ChatService {
         conversationMapper.update(null, Wrappers.<Conversation>lambdaUpdate()
                 .eq(Conversation::getId, conversationId)
                 .set(Conversation::getUpdatedAt, LocalDateTime.now()));
+    }
+
+    private Long parseRequiredId(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, fieldName + " 不能为空");
+        }
+        try {
+            long id = Long.parseLong(value.trim());
+            if (id <= 0) {
+                throw new BizException(ErrorCode.PARAM_INVALID, fieldName + " 格式不正确");
+            }
+            return id;
+        } catch (NumberFormatException e) {
+            throw new BizException(ErrorCode.PARAM_INVALID, fieldName + " 格式不正确");
+        }
     }
 
     private Long parseLong(String value) {

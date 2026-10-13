@@ -6,9 +6,14 @@ import com.zest.mindforgeai.mapper.DocumentMapper;
 import com.zest.mindforgeai.mapper.KnowledgeBaseMapper;
 import com.zest.mindforgeai.pojo.entity.Conversation;
 import com.zest.mindforgeai.pojo.entity.Document;
+import com.zest.mindforgeai.pojo.entity.SysFile;
+import com.zest.mindforgeai.service.FileService;
 import com.zest.mindforgeai.service.KnowledgeBaseCascadeService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
  * 知识库级联清理实现
@@ -23,17 +28,30 @@ public class KnowledgeBaseCascadeServiceImpl implements KnowledgeBaseCascadeServ
     private final DocumentMapper documentMapper;
     private final ConversationMapper conversationMapper;
     private final KnowledgeBaseMapper knowledgeBaseMapper;
+    private final FileService fileService;
 
     public KnowledgeBaseCascadeServiceImpl(DocumentMapper documentMapper,
                                            ConversationMapper conversationMapper,
-                                           KnowledgeBaseMapper knowledgeBaseMapper) {
+                                           KnowledgeBaseMapper knowledgeBaseMapper,
+                                           FileService fileService) {
         this.documentMapper = documentMapper;
         this.conversationMapper = conversationMapper;
         this.knowledgeBaseMapper = knowledgeBaseMapper;
+        this.fileService = fileService;
     }
 
     @Override
     public CascadeResult deleteCascade(Long knowledgeBaseId) {
+        // 先查出该知识库下未删除文档关联的 fileId，同步做 sys_file 软删除（供 FilePurgeTask 清理底层存储）
+        List<Long> fileIds = documentMapper.selectList(new LambdaQueryWrapper<Document>()
+                        .select(Document::getFileId)
+                        .eq(Document::getKnowledgeBaseId, knowledgeBaseId))
+                .stream()
+                .map(Document::getFileId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
         // ⚠️ 没有外键级联，关联数据必须手动清理。
         //    document / conversation 都有 deleted 列 → MP 的 delete() 走逻辑删除。
         //    document_chunk / chat_message / chat_source 没有 deleted 列，
@@ -41,6 +59,12 @@ public class KnowledgeBaseCascadeServiceImpl implements KnowledgeBaseCascadeServ
         //    安全性：RAG 检索会 JOIN document 并过滤 deleted = 0，不会召回已删文档的内容。
         int docs = documentMapper.delete(new LambdaQueryWrapper<Document>()
                 .eq(Document::getKnowledgeBaseId, knowledgeBaseId));
+        for (Long fileId : fileIds) {
+            SysFile sysFile = fileService.getById(fileId);
+            if (sysFile != null) {
+                fileService.softDelete(sysFile);
+            }
+        }
         int convs = conversationMapper.delete(new LambdaQueryWrapper<Conversation>()
                 .eq(Conversation::getKnowledgeBaseId, knowledgeBaseId));
 

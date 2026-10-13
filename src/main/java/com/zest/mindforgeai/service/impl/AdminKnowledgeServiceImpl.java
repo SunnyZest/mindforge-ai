@@ -71,7 +71,7 @@ public class AdminKnowledgeServiceImpl implements AdminKnowledgeService {
         SortSupport.applyTo(pageParam, sortBy, sortOrder, SORTABLE, "kb.id", false);
 
         IPage<AdminKnowledgeBaseVO> result = knowledgeBaseMapper.selectAdminPage(
-                pageParam, userId, keyword, status);
+                pageParam, userId, SortSupport.escapeLike(keyword), status);
 
         return PageResultVO.of(result, result.getRecords());
     }

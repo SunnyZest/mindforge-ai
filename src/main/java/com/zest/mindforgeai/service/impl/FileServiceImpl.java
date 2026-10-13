@@ -49,6 +49,9 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
     @Override
     @Transactional(rollbackFor = Exception.class)
     public SysFile upload(MultipartFile file, String bizType) {
+        if (file == null || file.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "上传文件不能为空");
+        }
         byte[] content;
         try {
             content = file.getBytes();
@@ -65,6 +68,9 @@ public class FileServiceImpl extends ServiceImpl<SysFileMapper, SysFile> impleme
     @Override
     @Transactional(rollbackFor = Exception.class)
     public SysFile uploadBytes(byte[] content, String originalName, String contentType, String bizType) {
+        if (content == null || content.length == 0) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "上传文件内容不能为空");
+        }
         Long userId = SecurityUtils.getUserId();
         String hash = HashUtils.sha256Hex(content);
         if (!StringUtils.hasText(originalName)) {

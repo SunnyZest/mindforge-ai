@@ -83,7 +83,14 @@ public class ConversationServiceImpl extends ServiceImpl<ConversationMapper, Con
         if (StringUtils.hasText(dto.getKnowledgeBaseId())
                 && !"0".equals(dto.getKnowledgeBaseId().trim())
                 && !"null".equalsIgnoreCase(dto.getKnowledgeBaseId().trim())) {
-            kbId = Long.valueOf(dto.getKnowledgeBaseId().trim());
+            try {
+                kbId = Long.valueOf(dto.getKnowledgeBaseId().trim());
+                if (kbId <= 0) {
+                    throw new BizException(ErrorCode.PARAM_INVALID, "知识库 id 格式不正确");
+                }
+            } catch (NumberFormatException e) {
+                throw new BizException(ErrorCode.PARAM_INVALID, "知识库 id 格式不正确");
+            }
             knowledgeBaseService.getAccessible(kbId);
         }
 

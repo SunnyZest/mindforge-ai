@@ -33,7 +33,7 @@
                kb.deleted
         FROM knowledge_base kb
         WHERE kb.deleted = 0
-          AND (kb.user_id = #{userId} OR kb.is_system = 1)
+          AND (kb.user_id = #{userId} OR (kb.is_system = 1 AND kb.status = 1))
         <if test="status != null">
           AND kb.status = #{status}
         </if>

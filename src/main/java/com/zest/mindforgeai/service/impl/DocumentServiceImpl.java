@@ -139,9 +139,10 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         long safePage = Math.max(1, page);
         long safeSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
+        String safeKeyword = SortSupport.escapeLike(keyword);
         LambdaQueryWrapper<Document> wrapper = new LambdaQueryWrapper<Document>()
                 .eq(Document::getKnowledgeBaseId, knowledgeBaseId)
-                .like(StringUtils.hasText(keyword), Document::getFileName, keyword);
+                .like(StringUtils.hasText(safeKeyword), Document::getFileName, safeKeyword);
 
         SortSupport.applyTo(wrapper, sortBy, sortOrder, SORTABLE, Document::getId, false);
 
@@ -175,6 +176,10 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     @Transactional(rollbackFor = Exception.class)
     public void retry(Long documentId) {
         Document doc = getOwned(documentId);
+        KnowledgeBase kb = knowledgeBaseService.getById(doc.getKnowledgeBaseId());
+        if (kb != null && Integer.valueOf(1).equals(kb.getIsSystem())) {
+            throw new BizException(ErrorCode.FORBIDDEN, "官方智库文档请通过管理端维护");
+        }
 
         // 只有处理失败的才能重试。
         // 允许重试「处理中」的文档会让 AI 服务对同一份文档跑两遍，状态互相覆盖。
@@ -229,6 +234,10 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long documentId) {
         Document doc = getOwned(documentId);
+        KnowledgeBase kb = knowledgeBaseService.getById(doc.getKnowledgeBaseId());
+        if (kb != null && Integer.valueOf(1).equals(kb.getIsSystem())) {
+            throw new BizException(ErrorCode.FORBIDDEN, "官方智库文档请通过管理端维护");
+        }
 
         // ① 逻辑删除 document（MP 自动设 deleted = 1）
         removeById(documentId);

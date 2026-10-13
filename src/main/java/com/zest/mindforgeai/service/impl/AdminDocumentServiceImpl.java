@@ -111,7 +111,7 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
         SortSupport.applyTo(pageParam, sortBy, sortOrder, SORTABLE, "d.id", false);
 
         IPage<AdminDocumentVO> result = documentMapper.selectAdminPage(
-                pageParam, knowledgeBaseId, userId, keyword, status);
+                pageParam, knowledgeBaseId, userId, SortSupport.escapeLike(keyword), status);
 
         // 聚合状态不在 SQL 里算（见 DocumentMapper.xml 的说明），映射完在这里补
         result.getRecords().forEach(this::fillAggregateStatus);
