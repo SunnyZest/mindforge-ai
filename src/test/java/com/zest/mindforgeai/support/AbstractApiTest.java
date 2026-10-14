@@ -82,7 +82,7 @@ public abstract class AbstractApiTest {
             "document_chunk", "document", "knowledge_base",
             "interview_question", "interview_report", "interview",
             "resume_skill", "resume_job_analysis", "resume",
-            "job_skill", "job",
+            "job_skill", "job", "job_offer",
             "sys_file", "sys_audit_log", "sys_alert", "sys_refresh_token", "ai_usage_record",
             // sys_ai_model / sys_prompt 都没有 deleted 列，只能物理删
             "sys_ai_model", "sys_prompt"

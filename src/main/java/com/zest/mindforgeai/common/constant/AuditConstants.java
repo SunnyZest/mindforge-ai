@@ -174,6 +174,10 @@ public final class AuditConstants {
     public static final String ACTION_PROMPT_ROLLBACK = "PROMPT_ROLLBACK";
     public static final String ACTION_PROMPT_DELETE = "PROMPT_DELETE";
 
+    /** Offer 对比：新增与删除。改评分不记（高频微调，记了是噪音） */
+    public static final String ACTION_OFFER_CREATE = "OFFER_CREATE";
+    public static final String ACTION_OFFER_DELETE = "OFFER_DELETE";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
@@ -193,6 +197,7 @@ public final class AuditConstants {
     public static final String RESOURCE_RESUME_JOB_ANALYSIS = "RESUME_JOB_ANALYSIS";
     public static final String RESOURCE_PROMPT = "PROMPT";
     public static final String RESOURCE_ALERT = "ALERT";
+    public static final String RESOURCE_OFFER = "OFFER";
 
     /* ---------- 高危操作 ---------- */
 
