@@ -3,11 +3,13 @@ package com.zest.mindforgeai.controller.user;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.ResumeOptimizeDTO;
 import com.zest.mindforgeai.pojo.dto.ResumeUpdateDTO;
+import com.zest.mindforgeai.pojo.vo.AtsScoreVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.ResumeDetailVO;
 import com.zest.mindforgeai.pojo.vo.ResumeOptimizeVO;
 import com.zest.mindforgeai.pojo.vo.ResumeParsedVO;
 import com.zest.mindforgeai.pojo.vo.ResumeVO;
+import com.zest.mindforgeai.service.AtsScoreService;
 import com.zest.mindforgeai.service.ResumeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -45,9 +47,11 @@ import org.springframework.web.multipart.MultipartFile;
 public class ResumeController {
 
     private final ResumeService resumeService;
+    private final AtsScoreService atsScoreService;
 
-    public ResumeController(ResumeService resumeService) {
+    public ResumeController(ResumeService resumeService, AtsScoreService atsScoreService) {
         this.resumeService = resumeService;
+        this.atsScoreService = atsScoreService;
     }
 
     @Operation(summary = "简历列表（分页）")
@@ -147,6 +151,25 @@ public class ResumeController {
     public Result<ResumeDetailVO> update(@PathVariable Long id,
                                          @Valid @RequestBody ResumeUpdateDTO dto) {
         return Result.success(resumeService.update(id, dto));
+    }
+
+    /**
+     * ATS 关键词跑分。
+     * <p>
+     * ⚠️ 和 {@code POST /resume-job-analysis}（匹配分析）是<b>两回事</b>：
+     * 这个只算「JD 里的关键词在简历里出现了没有」，纯本地计算、毫秒级返回、不烧 token；
+     * 匹配分析会调模型给出五类结论（几十秒）。前端两个入口要分开，别混成一句话说。
+     * <p>
+     * 权限用 {@code app:resume:read} 而不是 {@code app:resume:match} ——
+     * 它不消耗模型额度，没必要多要一个权限。
+     */
+    @Operation(summary = "ATS 关键词跑分（纯本地计算，毫秒级）",
+            description = "返回关键词覆盖率得分 + 逐词命中情况 + 缺失的必须项；不调模型、不落库")
+    @GetMapping("/{id}/ats-score")
+    @PreAuthorize("hasAuthority('app:resume:read')")
+    public Result<AtsScoreVO> atsScore(@PathVariable Long id,
+                                       @RequestParam Long jobId) {
+        return Result.success(atsScoreService.score(id, jobId));
     }
 
     @Operation(summary = "删除简历")
