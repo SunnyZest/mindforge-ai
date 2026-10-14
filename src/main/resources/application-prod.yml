@@ -1,0 +1,95 @@
+# ==============================================================================
+# 生产环境配置（profile: prod）
+#
+# ⚠️ 本文件【可以提交 git】：所有敏感值都是 ${ENV_VAR} 占位符，真实值不在这里。
+#    真实值通过 systemd 的 EnvironmentFile（/opt/mindforge/mindforge.env）注入，
+#    模板见 deploy/mindforge-java.env.example —— 那个文件【不要】把真实值提交回来。
+#
+# 启动方式（systemd 已配好，手动调试时用）：
+#   java -jar mindforge-ai.jar --spring.profiles.active=prod
+#
+# 与 dev 的差异汇总：
+#   1. 敏感配置全部改走环境变量（数据库/Redis 密码、JWT 密钥、OSS AK、内部令牌）
+#   2. trust-forwarded-headers 改 true —— 生产在 Nginx 后面，限流和登录失败计数
+#      要读 X-Forwarded-For 才能区分真实客户端 IP，否则所有用户都被当成 127.0.0.1
+#   3. 关闭 SQL stdout 日志（MyBatis log-impl），日志级别降到 info
+#   4. Tomcat 线程池收窄到 50（2核2G 撑不住 200 线程的默认值）
+# ==============================================================================
+
+mindforge:
+  redis:
+    host: ${MINDFORGE_REDIS_HOST:127.0.0.1}
+    port: ${MINDFORGE_REDIS_PORT:6379}
+    # 无默认值：没配直接启动失败（fail-fast），好过带空密码连上裸奔的 Redis
+    password: ${MINDFORGE_REDIS_PASSWORD}
+    database: 0
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: ${MINDFORGE_DB_HOST:127.0.0.1}
+    port: ${MINDFORGE_DB_PORT:3306}
+    database: ${MINDFORGE_DB_NAME:mindforge}
+    username: ${MINDFORGE_DB_USER:mindforge}
+    password: ${MINDFORGE_DB_PASSWORD}
+
+  jwt:
+    # Base64 密钥，生成：openssl rand -base64 32
+    secret-prop: ${MINDFORGE_JWT_SECRET}
+    access-token-expire-minutes-prop: 30
+    refresh-token-expire-days-prop: 14
+
+  storage:
+    # 文件走阿里云 OSS，密钥用专门的 RAM 子账号（不要主账号 AK）
+    type: OSS
+    oss:
+      endpoint: ${MINDFORGE_OSS_ENDPOINT}
+      bucket: ${MINDFORGE_OSS_BUCKET}
+      access-key-id: ${MINDFORGE_OSS_ACCESS_KEY_ID}
+      access-key-secret: ${MINDFORGE_OSS_ACCESS_KEY_SECRET}
+
+  ai-config:
+    # AI 模型配置里 API Key 的加密密钥（对应 application.yml 的同名占位符）。
+    # ⚠️ 与 dev 用【不同】的密钥：生产库里的密文要用生产的密钥加密录入。
+    secret-key: ${MINDFORGE_AI_CONFIG_SECRET_KEY:}
+
+  # Java ↔ Python 双向调用的共享令牌（两边必须是同一个值）。
+  # 生成：openssl rand -base64 24。⚠️ 不要复用 dev 环境的令牌。
+  ai-service:
+    service-token: ${MINDFORGE_SERVICE_TOKEN}
+  internal:
+    service-token: ${MINDFORGE_SERVICE_TOKEN}
+
+  security:
+    # ★ 生产在 Nginx 反代后面，必须信任转发头 —— 否则限流（按 IP 计数）和
+    #    登录失败锁定会把全部用户算成同一个 IP（127.0.0.1），防护完全失效。
+    #    Nginx 侧已配置 proxy_set_header X-Real-IP / X-Forwarded-For。
+    trust-forwarded-headers: true
+
+server:
+  tomcat:
+    threads:
+      # 2核2G：默认 200 个线程的默认栈内存开销约 200MB+，收窄到 50 足够
+      # （Nginx + 同步接口，QPS 上限本来就被 CPU 卡住，线程多只是白占内存）
+      max: 50
+      min-spare: 5
+
+mybatis-plus:
+  configuration:
+    # 生产关闭 SQL 全量打印 —— dev 的 StdOutImpl 会把慢 SQL 和敏感参数刷进日志
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+logging:
+  level:
+    com.zest.mindforgeai: info
+
+# 关闭接口文档 —— 生产把 swagger / knife4j 开着，等于把全部接口结构
+# （包括 /internal/** 内部接口）交给任何能访问 /api/ 的人，是纯粹的信息泄露面。
+# 排查线上问题时看日志和审计，不要靠 swagger。
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+knife4j:
+  enable: false

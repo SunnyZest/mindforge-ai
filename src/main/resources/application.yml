@@ -120,8 +120,10 @@ mindforge:
 
   # 调 Python AI 服务（Java → Python 方向）。
   # service-token 在 application-dev.yml 里配，和 Python 的 JAVA_SERVICE_TOKEN 一致。
+  # base-url 用占位符包着 —— 容器里 Python 的地址是 http://ai-service:8000，
+  # 写死 127.0.0.1 的话容器内会连到自己（AI 功能全挂）。
   ai-service:
-    base-url: http://127.0.0.1:8000
+    base-url: ${MINDFORGE_AI_SERVICE_BASE_URL:http://127.0.0.1:8000}
     connect-timeout: 3s
     # ⚠️ 读超时要按最慢的接口定 —— 对话、简历/JD 解析、简历优化、面试评分都要等模型生成。
     #

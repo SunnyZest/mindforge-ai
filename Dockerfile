@@ -32,13 +32,19 @@ RUN apk add --no-cache curl tzdata && \
 COPY --from=builder /build/target/mindforge-ai-*.jar app.jar
 
 # JVM 内存与时区参数
+# ⚠️ 堆上限 512M：4G 机器上还要同时跑 MySQL/Redis/Python，堆 1G 加元空间和
+#    线程栈约 1.4G 常驻，会把机器拖进 swap（云盘 swap 很慢，GC 时尤其明显）。
+#    需要调整时用环境变量覆盖，不要改这里：JAVA_OPTS="-Xmx768m"
 ENV TZ=Asia/Shanghai \
-    JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC -Duser.timezone=Asia/Shanghai"
+    JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC -Duser.timezone=Asia/Shanghai"
 
 EXPOSE 8080
 
-# 容器健康检查（基于 Knife4j/Swagger 探测）
-HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=30s \
-  CMD curl -f http://localhost:8080/api/swagger-ui.html || exit 1
+# 容器健康检查：探测认证接口的「未授权」响应（401）——
+# 有响应就说明 Tomcat 和 Spring 都起来了。
+# ⚠️ 刻意不探 swagger：生产 profile 把接口文档关了（避免暴露全部接口结构），
+#    拿它当探针会在生产永远不健康。
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=40s \
+  CMD curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/app/auth/me | grep -qE "^(200|401|403)$" || exit 1
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]

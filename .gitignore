@@ -42,6 +42,9 @@ Thumbs.db
 # Environment
 .env
 .env.*
+# 例外：env 模板要进版本库（纯占位符、不含真实密钥），
+# 否则别人拿到仓库不知道该配哪些变量。真实值一律放 .env（上面已忽略）。
+!.env.docker.example
 
 # Local configuration —— application.yml 使用占位符、不含明文，需要提交
 application-dev.yml

@@ -1,0 +1,52 @@
+# MindForge AI Java 后端 systemd 服务单元
+#
+# 安装（服务器上执行）：
+#   sudo cp mindforge-java.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mindforge-java
+#
+# 查看日志：
+#   journalctl -u mindforge-java -f
+
+[Unit]
+Description=MindForge AI Java backend (Spring Boot)
+# 等网络就绪；本机 MySQL/Redis 由各自的 service 拉起，这里不强依赖
+# （应用自身有重试，MySQL 晚几秒就绪不会导致启动失败）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mindforge
+Group=mindforge
+WorkingDirectory=/opt/mindforge
+
+# 真实密钥都在这里（chmod 600，属主 mindforge）—— 模板见 mindforge-java.env.example
+EnvironmentFile=/opt/mindforge/mindforge.env
+
+# 2核2G 内存账本（重要，别随意放大）：
+#   -Xmx640m      堆上限。Spring Boot + MyBatis 空载约 250~300MB，高峰留够余量
+#   -Xms128m      起始堆小一点，把内存还给同机的 MySQL/Redis/Python
+#   Metaspace 192m 上限：Spring 全家桶实际占用约 120~150MB，封顶防失控
+#   整个进程 RSS 峰值约 1GB。再大的话同机的 MySQL + Python 会被挤进 swap。
+ExecStart=/usr/bin/java \
+    -Xms128m -Xmx640m \
+    -XX:MaxMetaspaceSize=192m \
+    -jar /opt/mindforge/mindforge-ai.jar \
+    --spring.profiles.active=prod
+
+# kill 信号 → Spring 优雅停机（完成正在处理的请求再退出）
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+
+# 进程内存硬上限：超过被 systemd 掐掉重启，避免 OOM 杀手随机选目标
+# （把整机拖死比这一下重启的代价大得多）
+MemoryMax=1100M
+
+# 适度防洪：日志进 journald，由系统统一限制大小
+LogRateLimitIntervalSec=30
+LogRateLimitBurst=2000
+
+[Install]
+WantedBy=multi-user.target
