@@ -30,9 +30,9 @@ public class SendMessageDTO {
     /**
      * 是否重排序。
      * <p>
-     * ⚠️ 目前<b>不生效</b> —— AI 服务还没接重排序模型，
-     * 响应里会如实返回 {@code reranked: false}。留着字段是为了将来兼容，
-     * 前端现在传什么都不影响结果。
+     * 传 true 会让 Python 侧先向量多召回、再用 RERANK 模型精排后收窄到 topK。
+     * ⚠️ 未配置 RERANK 模型、或精排调用失败时会降级回向量序 ——
+     * 这是有意的：精排是增强不是依赖，不能因为「排得不够准」让提问失败。
      */
     @Schema(description = "是否重排序（未配置 RERANK 模型或调用失败时 Python 侧降级回向量序）")
     private Boolean enableRerank = false;

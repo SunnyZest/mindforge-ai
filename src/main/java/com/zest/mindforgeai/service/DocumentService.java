@@ -40,12 +40,8 @@ public interface DocumentService extends IService<Document> {
     /**
      * 重试处理失败的文档。
      * <p>
-     * 把三个状态重置为 PENDING 并清空错误信息。
-     * <p>
-     * ⚠️ 真正的「通知 AI 服务重新解析」这一步<b>还没实现</b> ——
-     * 按文档 §十七，Java 需要在权限校验后调用 Python 的
-     * {@code POST /internal/ai/v1/documents/parse}，但 Python 服务尚未搭建。
-     * 目前只重置状态，等 AI 服务接上后在这里补一次调用即可。
+     * 把三个状态重置为 PENDING 并清空错误信息，由 Python AI 服务的轮询循环
+     * 下一轮认领处理（claim 只挑 PENDING 的文档，所以不需要主动通知）。
      */
     void retry(Long documentId);
 

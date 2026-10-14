@@ -16,7 +16,7 @@ public class LoginVO {
     @Schema(description = "访问令牌")
     private String accessToken;
 
-    @Schema(description = "刷新令牌，阶段 3 实现")
+    @Schema(description = "刷新令牌（带轮换 + 重放检测：一个用过一次就失效）")
     private String refreshToken;
 
     @Schema(description = "accessToken 有效期（秒）")
