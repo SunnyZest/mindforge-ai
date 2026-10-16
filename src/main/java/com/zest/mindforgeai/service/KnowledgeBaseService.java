@@ -62,5 +62,16 @@ public interface KnowledgeBaseService extends IService<KnowledgeBase> {
      * 若无任何可用知识库，返回 {@code null}。
      */
     String resolveDualTrackKbIds(Long primaryKbId);
+
+    /**
+     * 解析「搜索页」的检索范围。
+     * <p>
+     * 与 {@link #resolveDualTrackKbIds} 的区别：{@code primaryKbId} 传 null 时
+     * 返回「当前用户的全部启用中知识库 + 官方智库」，而不是「只有官方智库」——
+     * 搜索页的主用法就是不选库直接搜。
+     *
+     * @return 逗号分隔的知识库 id；一个可搜的库都没有时返回 {@code null}
+     */
+    String resolveSearchScopeKbIds(Long primaryKbId);
 }
 

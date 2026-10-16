@@ -18,8 +18,10 @@ import com.zest.mindforgeai.pojo.entity.ChatMessage;
 import com.zest.mindforgeai.pojo.entity.ChatSource;
 import com.zest.mindforgeai.pojo.entity.Conversation;
 import com.zest.mindforgeai.pojo.entity.DocumentChunk;
+import com.zest.mindforgeai.pojo.entity.KnowledgeBase;
 import com.zest.mindforgeai.pojo.entity.Document;
 import com.zest.mindforgeai.pojo.vo.RagSearchVO;
+import com.zest.mindforgeai.pojo.vo.SearchHitVO;
 import com.zest.mindforgeai.pojo.vo.SendMessageResultVO;
 import com.zest.mindforgeai.pojo.vo.SourceVO;
 import com.zest.mindforgeai.service.AuditService;
@@ -30,7 +32,7 @@ import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -38,6 +40,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -225,11 +228,26 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public RagSearchVO search(RagSearchDTO dto) {
-        // 校验知识库访问权限（本人私有库 或 官方全局智库）
-        Long kbId = parseRequiredId(dto.getKnowledgeBaseId(), "知识库 id");
-        knowledgeBaseService.getAccessible(kbId);
+        // knowledgeBaseId 可以【不传】= 搜「我的全部知识库 + 官方智库」。
+        // 传了就必须是我有权访问的（私有库本人 或 官方全局智库），否则 404。
+        Long kbId = null;
+        if (StringUtils.hasText(dto.getKnowledgeBaseId())) {
+            kbId = parseRequiredId(dto.getKnowledgeBaseId(), "知识库 id");
+            knowledgeBaseService.getAccessible(kbId);
+        }
 
-        String effectiveKbIds = knowledgeBaseService.resolveDualTrackKbIds(kbId);
+        String effectiveKbIds = knowledgeBaseService.resolveSearchScopeKbIds(kbId);
+
+        RagSearchVO vo = new RagSearchVO();
+        if (!StringUtils.hasText(effectiveKbIds)) {
+            // 一个可搜的库都没有（比如新用户还没建库、官方智库也没配）——
+            // 直接返回空结果，别白调一次 AI 服务（那要花一次嵌入的钱）
+            vo.setResults(List.of());
+            vo.setReranked(false);
+            vo.setSearchedKbCount(0);
+            return vo;
+        }
+
         AiServiceClient.SearchData data = aiClient.search(new AiServiceClient.SearchRequest(
                 String.valueOf(SecurityUtils.getUserId()),
                 effectiveKbIds,
@@ -237,10 +255,99 @@ public class ChatServiceImpl implements ChatService {
                 dto.getTopK(),
                 Boolean.TRUE.equals(dto.getEnableRerank())));
 
-        RagSearchVO vo = new RagSearchVO();
-        vo.setResults(toSourceVOs(data.results()));
+        vo.setResults(toSearchHits(data.results()));
         vo.setReranked(Boolean.TRUE.equals(data.reranked()));
+        vo.setSearchedKbCount(effectiveKbIds.split(",").length);
         return vo;
+    }
+
+    /**
+     * 检索结果 → 搜索页的 VO。
+     * <p>
+     * 和 {@link #toSourceVOs} 的差别：<b>带正文</b>，并且带来源知识库名
+     * （跨库检索时必须知道这条来自哪个库）。
+     * <p>
+     * 与聊天引用一样，悬空引用（向量库有、MySQL 里分块已被重处理删掉）直接跳过 ——
+     * 总比让前端点进去报 404 好。
+     */
+    private List<SearchHitVO> toSearchHits(List<AiServiceClient.Source> sources) {
+        if (sources == null || sources.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> documentIds = sources.stream()
+                .map(s -> parseLong(s.documentId()))
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        Map<Long, Document> docMap = documentIds.isEmpty() ? Map.of()
+                : documentMapper.selectList(Wrappers.<Document>lambdaQuery()
+                        .select(Document::getId, Document::getFileName, Document::getKnowledgeBaseId)
+                        .in(Document::getId, documentIds))
+                .stream()
+                .collect(Collectors.toMap(Document::getId, d -> d, (a, b) -> a));
+
+        Map<String, Long> chunkIdMap = documentIds.isEmpty() ? Map.of()
+                : chunkMapper.selectList(Wrappers.<DocumentChunk>lambdaQuery()
+                        .select(DocumentChunk::getId, DocumentChunk::getDocumentId,
+                                DocumentChunk::getChunkIndex)
+                        .in(DocumentChunk::getDocumentId, documentIds))
+                .stream()
+                .collect(Collectors.toMap(
+                        c -> chunkKey(c.getDocumentId(), c.getChunkIndex()),
+                        DocumentChunk::getId,
+                        (a, b) -> a));
+
+        // 知识库名与「是否官方库」：一次查完，避免逐条查
+        Set<Long> kbIds = docMap.values().stream()
+                .map(Document::getKnowledgeBaseId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, KnowledgeBase> kbMap = kbIds.isEmpty() ? Map.of()
+                : knowledgeBaseService.listByIds(kbIds).stream()
+                        .collect(Collectors.toMap(KnowledgeBase::getId, kb -> kb, (a, b) -> a));
+
+        List<SearchHitVO> hits = new ArrayList<>(sources.size());
+        for (AiServiceClient.Source src : sources) {
+            Long documentId = parseLong(src.documentId());
+            Document doc = documentId == null ? null : docMap.get(documentId);
+            if (doc == null) {
+                log.warn("检索命中的文档不存在或已删除（documentId={}），已跳过", src.documentId());
+                continue;
+            }
+
+            Long chunkId = chunkIdMap.get(chunkKey(documentId, src.chunkIndex()));
+            if (chunkId == null) {
+                log.warn("找不到对应的分块（documentId={} chunkIndex={}），已跳过",
+                        documentId, src.chunkIndex());
+                continue;
+            }
+
+            SearchHitVO hit = new SearchHitVO();
+            hit.setDocumentId(String.valueOf(documentId));
+            hit.setDocumentName(doc.getFileName());
+            hit.setChunkId(String.valueOf(chunkId));
+            hit.setChunkIndex(src.chunkIndex());
+            // 与聊天引用保持一致：pageNo 取 chunkIndex（分块序号即页码口径）
+            hit.setPageNo(src.chunkIndex());
+            hit.setContent(src.content());
+            hit.setScore(src.score());
+
+            KnowledgeBase kb = doc.getKnowledgeBaseId() == null ? null : kbMap.get(doc.getKnowledgeBaseId());
+            if (kb != null) {
+                hit.setKnowledgeBaseId(String.valueOf(kb.getId()));
+                hit.setKnowledgeBaseName(kb.getName());
+                hit.setFromSystemKb(Integer.valueOf(1).equals(kb.getIsSystem()));
+            } else if (doc.getKnowledgeBaseId() != null) {
+                // 知识库被删了（逻辑删）但文档还在 —— 标出 id 与名字缺失，别塞假名字
+                hit.setKnowledgeBaseId(String.valueOf(doc.getKnowledgeBaseId()));
+                hit.setFromSystemKb(false);
+            }
+
+            hits.add(hit);
+        }
+        return hits;
     }
 
     @Override

@@ -17,8 +17,17 @@ import lombok.Data;
 @Data
 public class RagSearchDTO {
 
-    @Schema(description = "知识库 id")
-    @NotBlank(message = "知识库 id 不能为空")
+    /**
+     * 知识库 id。
+     * <p>
+     * <b>可以不传</b> —— 不传表示「搜我自己的全部知识库 + 官方智库」。
+     * 这是搜索页的主用法：用户不该为了搜一句话先想清楚「这内容在哪个库」。
+     * 传了就按传的那个库（仍然会自动并上官方智库，即双轨）。
+     * <p>
+     * ⚠️ 传了就必须是<b>我有权访问的</b>库，否则 404（不区分「不存在」和「不是你的」）。
+     */
+    @Schema(description = "知识库 id；不传 = 搜索我的全部知识库 + 官方智库")
+    @Size(max = 32, message = "知识库 ID 长度不合法")
     private String knowledgeBaseId;
 
     @Schema(description = "检索内容")

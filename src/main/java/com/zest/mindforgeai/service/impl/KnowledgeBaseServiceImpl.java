@@ -190,19 +190,66 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
             }
         }
 
-        List<KnowledgeBase> systemKbs = lambdaQuery()
+        kbIds.addAll(enabledSystemKbIds());
+        return joinKbIds(kbIds);
+    }
+
+    /**
+     * 搜索页的检索范围解析。
+     * <p>
+     * 与 {@link #resolveDualTrackKbIds} 的区别只在「主库」怎么定：
+     * <ul>
+     *   <li>传了 primaryKbId → 就搜那个库（+ 官方智库），与聊天一致；</li>
+     *   <li><b>没传</b>（搜索页的主用法）→ 搜「我自己的全部启用中知识库 + 官方智库」。
+     *       用户不该为了搜一句话先想清楚内容在哪个库。</li>
+     * </ul>
+     * ⚠️ 只并自己的库，不碰别人的 —— 数据隔离的红线。
+     */
+    @Override
+    public String resolveSearchScopeKbIds(Long primaryKbId) {
+        Set<Long> kbIds = new LinkedHashSet<>();
+
+        if (primaryKbId != null && primaryKbId > 0) {
+            KnowledgeBase primaryKb = getById(primaryKbId);
+            if (primaryKb != null && Integer.valueOf(1).equals(primaryKb.getStatus())) {
+                kbIds.add(primaryKbId);
+            }
+        } else {
+            List<KnowledgeBase> own = lambdaQuery()
+                    .select(KnowledgeBase::getId)
+                    .eq(KnowledgeBase::getUserId, SecurityUtils.getUserId())
+                    .eq(KnowledgeBase::getIsSystem, 0)
+                    .eq(KnowledgeBase::getStatus, 1)
+                    .orderByAsc(KnowledgeBase::getId)
+                    .list();
+            own.forEach(kb -> kbIds.add(kb.getId()));
+        }
+
+        kbIds.addAll(enabledSystemKbIds());
+        return joinKbIds(kbIds);
+    }
+
+    /**
+     * 可用的官方智库 id（启用中 + 至少有一份向量化成功的文档）。
+     * <p>
+     * 没有「有 SUCCESS 文档」这个条件的话，会把空库也并进检索范围 ——
+     * 白算一次、还可能让 Python 侧因为库不存在报错。
+     */
+    private List<Long> enabledSystemKbIds() {
+        return lambdaQuery()
                 .select(KnowledgeBase::getId)
                 .eq(KnowledgeBase::getIsSystem, 1)
                 .eq(KnowledgeBase::getStatus, 1)
                 .apply("EXISTS (SELECT 1 FROM document d WHERE d.knowledge_base_id = knowledge_base.id AND d.deleted = 0 AND d.vector_status = 'SUCCESS')")
                 .orderByAsc(KnowledgeBase::getId)
-                .list();
-        for (KnowledgeBase sysKb : systemKbs) {
-            if (sysKb != null && sysKb.getId() != null) {
-                kbIds.add(sysKb.getId());
-            }
-        }
+                .list()
+                .stream()
+                .map(KnowledgeBase::getId)
+                .toList();
+    }
 
+    /** 拼成 Python 侧要的逗号分隔串；一个都没有时返回 null（调用方据此跳过检索） */
+    private String joinKbIds(Set<Long> kbIds) {
         if (kbIds.isEmpty()) {
             return null;
         }
