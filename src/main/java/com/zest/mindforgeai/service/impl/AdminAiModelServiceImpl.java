@@ -85,12 +85,16 @@ public class AdminAiModelServiceImpl implements AdminAiModelService {
                     .setApiKeyHint(AesCipher.hintOf(dto.getApiKey()));
         }
 
-        aiModelMapper.insert(model);
-
-        // 同一个用途下只能有一个默认。插完再清，保证无论哪一步失败都不会出现「两个默认」
+        // ★ 先清后设。
+        //   唯一索引 uk_ai_model_default 不允许同一 scene 同时存在两个「启用中的默认」，
+        //   「先插再清」会在这两步之间撞上约束（insert 时旧默认还在）。
+        //   清完再插中间会短暂「没有默认」，但两个操作在同一事务里，
+        //   插入失败会连清除一起回滚 —— 不会真的留下没有默认的状态。
         if (asDefault) {
-            clearOtherDefaults(model.getScene(), model.getId());
+            clearOtherDefaults(model.getScene(), null);
         }
+
+        aiModelMapper.insert(model);
 
         // ⚠️ 日志和审计里只出现 hint，绝不出现 Key
         log.info("新增 AI 模型配置 id={} scene={} provider={} model={} keyHint={}",
@@ -137,15 +141,18 @@ public class AdminAiModelServiceImpl implements AdminAiModelService {
                     .set(SysAiModel::getApiKeyHint, AesCipher.hintOf(dto.getApiKey()));
         }
 
+        // ★ 先清后设（理由同 create）。
+        //   注意用的是「更新后的 scene」而不是入参 —— 这次可能同时改了用途，
+        //   所以要先算出来再清。
+        boolean makeDefault = dto.getIsDefault() != null && Boolean.TRUE.equals(dto.getIsDefault());
+        if (makeDefault) {
+            String targetScene = dto.getScene() != null ? dto.getScene() : existing.getScene();
+            clearOtherDefaults(targetScene, id);
+        }
+
         aiModelMapper.update(null, wrapper);
 
         SysAiModel updated = aiModelMapper.selectById(id);
-
-        // 改成默认时，清掉同一个用途下的其他默认。
-        // 用「更新后的 scene」而不是入参 —— 这次可能同时改了用途。
-        if (dto.getIsDefault() != null && Boolean.TRUE.equals(dto.getIsDefault())) {
-            clearOtherDefaults(updated.getScene(), id);
-        }
 
         log.info("修改 AI 模型配置 id={} scene={} model={} 改了Key={} keyHint={}",
                 id, updated.getScene(), updated.getModelName(),
@@ -193,15 +200,25 @@ public class AdminAiModelServiceImpl implements AdminAiModelService {
     /**
      * 把同一个 scene 下除 {@code keepId} 之外的默认标记清掉。
      * <p>
-     * 「同一用途只有一个默认」是业务规则，但<b>没有用唯一索引去约束</b> ——
-     * MySQL 的唯一索引对「多行 is_default=0」不友好（0 会互相冲突），
-     * 而条件唯一索引本项目没用过。所以在代码里保证。
+     * 「同一用途只有一个默认」现在是<b>双保险</b>：
+     * <ul>
+     *   <li>数据库层：唯一索引 {@code uk_ai_model_default}
+     *       （函数索引，表达式为 NULL 的行不参与唯一性，所以多个「非默认」互不冲突）；</li>
+     *   <li>代码层：本方法负责把旧的默认让出来 ——
+     *       因为唯一索引是<b>立即生效</b>的（MySQL 不支持延迟约束），
+     *       必须【先清后设】才能通过，不能反过来。</li>
+     * </ul>
+     *
+     * @param keepId 保留哪一行的默认标记；传 {@code null} 表示「这个 scene 下的默认全清」
+     *               （新增场景用：新行的 id 要 insert 之后才有）
      */
     private void clearOtherDefaults(String scene, Long keepId) {
         aiModelMapper.update(null, new LambdaUpdateWrapper<SysAiModel>()
                 .eq(SysAiModel::getScene, scene)
                 .eq(SysAiModel::getIsDefault, DEFAULT_FLAG)
-                .ne(SysAiModel::getId, keepId)
+                // keepId 为 null 时这个条件不参与 SQL —— 直接写 ne(id, null) 会变成
+                // `id <> NULL`，SQL 里恒为 NULL，一条都更新不到
+                .ne(keepId != null, SysAiModel::getId, keepId)
                 .set(SysAiModel::getIsDefault, NOT_DEFAULT));
     }
 
