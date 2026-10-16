@@ -95,7 +95,7 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
             "INTERVIEW_1", "技术一面",
             "INTERVIEW_2", "技术二面 / 终面",
             "HR", "HR 面 / 谈薪",
-            "OFFER", "已获 Offer 🎉",
+            "OFFER", "已获 Offer",
             "REJECTED", "未通过 / 已归档"
     );
 

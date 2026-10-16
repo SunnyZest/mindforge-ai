@@ -40,13 +40,13 @@ SCHEMA_FILE="${SCHEMA_FILE:-mindforge-schema.sql}"
 APP_CONFIG="${APP_CONFIG:-src/main/resources/application-dev.yml}"
 
 if [ -z "$MYSQL_ROOT_PASSWORD" ]; then
-    echo "❌ 请通过 MYSQL_ROOT_PASSWORD 传入 MySQL root 密码" >&2
+    echo "请通过 MYSQL_ROOT_PASSWORD 传入 MySQL root 密码" >&2
     echo "   例：MYSQL_ROOT_PASSWORD=xxx bash $0" >&2
     exit 1
 fi
 
 if [ ! -f "$SCHEMA_FILE" ]; then
-    echo "❌ 找不到 $SCHEMA_FILE —— 请在仓库根目录执行本脚本" >&2
+    echo "找不到 $SCHEMA_FILE —— 请在仓库根目录执行本脚本" >&2
     echo "   ⚠️ 这个文件目前被 .gitignore 忽略，换机器要手工拷过来" >&2
     exit 1
 fi
@@ -69,7 +69,7 @@ awk '/^CREATE DATABASE/{skip=1} /^USE `mindforge`;/{skip=0;next} skip==0{print}'
     "$SCHEMA_FILE" > "$FILTERED"
 
 if grep -qE '^USE |^CREATE DATABASE' "$FILTERED"; then
-    echo "❌ 过滤没干净，文件里还有 USE / CREATE DATABASE —— 中止，免得打进开发库" >&2
+    echo "过滤没干净，文件里还有 USE / CREATE DATABASE —— 中止，免得打进开发库" >&2
     rm -f "$FILTERED"
     exit 1
 fi
