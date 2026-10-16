@@ -134,6 +134,11 @@ public final class AuditConstants {
     /** 触发 JD 解析。理由同 {@link #ACTION_RESUME_PARSE} */
     public static final String ACTION_JOB_PARSE = "JOB_PARSE";
 
+    /** 求职日程（面试日历）：增删改都记 —— 日程是用户对面试安排的承诺，改了要留痕 */
+    public static final String ACTION_JOB_EVENT_CREATE = "JOB_EVENT_CREATE";
+    public static final String ACTION_JOB_EVENT_UPDATE = "JOB_EVENT_UPDATE";
+    public static final String ACTION_JOB_EVENT_DELETE = "JOB_EVENT_DELETE";
+
     /** AI 面试：创建与删除 */
     public static final String ACTION_INTERVIEW_CREATE = "INTERVIEW_CREATE";
     public static final String ACTION_INTERVIEW_DELETE = "INTERVIEW_DELETE";
@@ -198,6 +203,7 @@ public final class AuditConstants {
     public static final String RESOURCE_PROMPT = "PROMPT";
     public static final String RESOURCE_ALERT = "ALERT";
     public static final String RESOURCE_OFFER = "OFFER";
+    public static final String RESOURCE_JOB_EVENT = "JOB_EVENT";
 
     /* ---------- 高危操作 ---------- */
 

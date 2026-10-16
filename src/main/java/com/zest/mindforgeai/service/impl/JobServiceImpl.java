@@ -18,6 +18,7 @@ import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.InterviewMapper;
 import com.zest.mindforgeai.mapper.InterviewReportMapper;
 import com.zest.mindforgeai.mapper.JobMapper;
+import com.zest.mindforgeai.mapper.JobEventMapper;
 import com.zest.mindforgeai.mapper.JobSkillMapper;
 import com.zest.mindforgeai.mapper.ResumeJobAnalysisMapper;
 import com.zest.mindforgeai.mapper.ResumeMapper;
@@ -28,6 +29,7 @@ import com.zest.mindforgeai.pojo.dto.JobUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.Interview;
 import com.zest.mindforgeai.pojo.entity.InterviewReport;
 import com.zest.mindforgeai.pojo.entity.Job;
+import com.zest.mindforgeai.pojo.entity.JobEvent;
 import com.zest.mindforgeai.pojo.entity.JobSkill;
 import com.zest.mindforgeai.pojo.entity.Resume;
 import com.zest.mindforgeai.pojo.entity.ResumeJobAnalysis;
@@ -112,6 +114,7 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     private final ObjectMapper objectMapper;
     private final AiServiceClient aiServiceClient;
     private final JobSkillMapper jobSkillMapper;
+    private final JobEventMapper jobEventMapper;
     private final ResumeJobAnalysisMapper resumeJobAnalysisMapper;
     private final ResumeMapper resumeMapper;
     private final InterviewMapper interviewMapper;
@@ -122,6 +125,7 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
                           ObjectMapper objectMapper,
                           AiServiceClient aiServiceClient,
                           JobSkillMapper jobSkillMapper,
+                          JobEventMapper jobEventMapper,
                           ResumeJobAnalysisMapper resumeJobAnalysisMapper,
                           ResumeMapper resumeMapper,
                           InterviewMapper interviewMapper,
@@ -131,6 +135,7 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
         this.objectMapper = objectMapper;
         this.aiServiceClient = aiServiceClient;
         this.jobSkillMapper = jobSkillMapper;
+        this.jobEventMapper = jobEventMapper;
         this.resumeJobAnalysisMapper = resumeJobAnalysisMapper;
         this.resumeMapper = resumeMapper;
         this.interviewMapper = interviewMapper;
@@ -265,8 +270,15 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
         int analyses = resumeJobAnalysisMapper.delete(new LambdaQueryWrapper<ResumeJobAnalysis>()
                 .eq(ResumeJobAnalysis::getJobId, id));
 
-        log.info("删除职位 JD id={} title={}（连带清掉 {} 项技能要求、{} 条匹配分析）",
-                id, job.getTitle(), skills, analyses);
+        // 面试日程【逻辑删】—— job_event 有 deleted 列，走 MP 的通用删除即可。
+        // 不物理删的理由：日程是用户自己排的面试安排，误删职位时还能捞回来。
+        // 留下的行引用着已删职位，但所有查询都会带 deleted=0 过滤，日历里看不到它们
+        // （与 document_chunk 的孤儿数据是同一套已知约定）。
+        int events = jobEventMapper.delete(new LambdaQueryWrapper<JobEvent>()
+                .eq(JobEvent::getJobId, id));
+
+        log.info("删除职位 JD id={} title={}（连带清掉 {} 项技能要求、{} 条匹配分析、{} 条面试日程）",
+                id, job.getTitle(), skills, analyses, events);
         auditService.recordSuccess(AuditConstants.ACTION_JOB_DELETE,
                 AuditConstants.RESOURCE_JOB, String.valueOf(id),
                 Map.of("title", job.getTitle()));
