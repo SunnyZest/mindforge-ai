@@ -29,6 +29,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -77,12 +78,27 @@ public class AiServiceClient {
     private static final String PATH_INTERVIEW_ANALYZE = "/internal/ai/v1/interviews/analyze";
     private static final String PATH_INTERVIEW_REPORT = "/internal/ai/v1/interviews/report";
     private static final String PATH_URL_EXTRACT = "/internal/ai/v1/tools/url-extract";
+    private static final String PATH_STATUS = "/internal/ai/v1/status";
+
+    /** 状态探测的超时 —— 必须短，理由见 probeClient 字段 */
+    private static final Duration PROBE_CONNECT_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration PROBE_READ_TIMEOUT = Duration.ofSeconds(3);
 
     /** SSE 里数据行的前缀（Python 侧格式是 {@code data: {json}}） */
     private static final String SSE_DATA_PREFIX = "data:";
 
     private final AiServiceProperties properties;
     private final RestClient restClient;
+
+    /**
+     * 状态探测专用客户端。
+     * <p>
+     * ★ <b>为什么不能复用 {@link #restClient}</b>：它的读超时按最慢的接口定成了 660 秒
+     * （对话、简历/JD 解析都要等模型生成）。状态徽章是首页上的东西 ——
+     * Python 一旦「端口通但卡住」，用同一个客户端会让首页白等 11 分钟。
+     * 所以这里单独给一个 2s 连接 / 3s 读取的短超时客户端。
+     */
+    private final RestClient probeClient;
     private final ObjectMapper objectMapper;
 
     public AiServiceClient(AiServiceProperties properties, ObjectMapper objectMapper) {
@@ -96,6 +112,18 @@ public class AiServiceClient {
         this.restClient = RestClient.builder()
                 .baseUrl(properties.getBaseUrl())
                 .requestFactory(factory)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .defaultHeader(HEADER_SERVICE_TOKEN, properties.getServiceToken())
+                .build();
+
+        // 状态探测用的短超时客户端（理由见 probeClient 字段的注释）
+        SimpleClientHttpRequestFactory probeFactory = new SimpleClientHttpRequestFactory();
+        probeFactory.setConnectTimeout((int) PROBE_CONNECT_TIMEOUT.toMillis());
+        probeFactory.setReadTimeout((int) PROBE_READ_TIMEOUT.toMillis());
+
+        this.probeClient = RestClient.builder()
+                .baseUrl(properties.getBaseUrl())
+                .requestFactory(probeFactory)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .defaultHeader(HEADER_SERVICE_TOKEN, properties.getServiceToken())
                 .build();
@@ -121,6 +149,34 @@ public class AiServiceClient {
                 new ParameterizedTypeReference<>() {
                 });
         return envelope.data();
+    }
+
+    /**
+     * 探测 AI 服务与模型配置状态（首页状态徽章用）。
+     * <p>
+     * 走 {@link #probeClient}（短超时），失败抛异常，由调用方兜底转「离线」——
+     * 这个接口存在的意义就是<b>不让首页被慢的 AI 服务拖垮</b>。
+     *
+     * @throws BizException AI_SERVICE_TIMEOUT / AI_SERVICE_ERROR
+     */
+    public StatusData status() {
+        try {
+            AiEnvelope<StatusData> envelope = probeClient.get()
+                    .uri(PATH_STATUS)
+                    .header(HEADER_TRACE_ID, currentTraceId())
+                    .header(HEADER_USER_ID, currentUserId())
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {
+                    });
+            if (envelope == null || envelope.code() == null || envelope.code() != 0 || envelope.data() == null) {
+                throw new BizException(ErrorCode.AI_SERVICE_ERROR, "AI 服务状态响应异常");
+            }
+            return envelope.data();
+        } catch (ResourceAccessException e) {
+            throw new BizException(ErrorCode.AI_SERVICE_TIMEOUT, "AI 服务不可用");
+        } catch (RestClientException e) {
+            throw new BizException(ErrorCode.AI_SERVICE_ERROR, "AI 服务状态读取失败");
+        }
     }
 
     /**
@@ -603,6 +659,11 @@ public class AiServiceClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SearchData(List<Source> results, Integer total, Boolean reranked) {
+    }
+
+    // ---------- 状态探测 ----------
+
+    public record StatusData(Boolean llmConfigured, String configSource) {
     }
 
     // ---------- 简历解析 ----------
