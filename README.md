@@ -98,19 +98,23 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
 
 | 维度 | 技术栈 / 核心组件 | 版本 / 选型理由 |
 | :--- | :--- | :--- |
-| **Java 业务端** | Spring Boot | `3.5.16`（底层基于 Spring 6.2，全面适配 Java 21 虚拟线程） |
-| | 安全与鉴权 | `Spring Security 6.2` + `JJWT 0.12`（无状态 JWT、双 Token 轮转机制） |
-| | ORM 与持久层 | `MyBatis-Plus 3.5.10` + `Druid 1.2` 动态连接池 |
-| | 数据源与缓存 | `MySQL 8.0`（InnoDB UTF8MB4） + `Redis 7.x`（Lettuce 连接池） |
+| **Java 业务端** | Spring Boot | `3.5.16`（底层基于 Spring 6.2，全面适配 Java 21） |
+| | 安全与鉴权 | `Spring Security 6.x` + `JJWT 0.12`（无状态 JWT、双 Token 轮转机制） |
+| | ORM 与持久层 | `MyBatis-Plus 3.5.16` + `Druid` 动态连接池 |
+| | 数据源与缓存 | `MySQL 8.0`（InnoDB UTF8MB4） + `Redis`（Lettuce 连接池） |
 | | 接口文档 | `Knife4j / SpringDoc OpenAPI 3`（规范接口契约） |
-| **Python AI 端** | 核心框架 | `FastAPI 0.115` + `Uvicorn`（异步高性能 ASGI 引擎） |
-| | 大模型与向量 | `DashScope 阿里百炼`（Qwen 3.8 / 2.5 系列 + text-embedding-v1） |
-| | 文档解析提取 | `pdfplumber` + `python-docx` + `BeautifulSoup4` + `trafilatura`（无 LangChain 依赖，轻量秒级启动） |
-| | 向量计算 | 混合检索架构（向量空间余弦匹配 + Rerank 交叉精排打分） |
-| **前端工程** | 架构方案 | `pnpm monorepo` 工作区架构（共享 `@mindforge/shared`） |
-| | 核心框架 | `Vue 3.5` + `TypeScript 5.8` + `Vite 6` |
-| | 状态与路由 | `Pinia 3.0` + `Vue Router 4.5`（HTML5 History 路由模式） |
-| | UI 与图表 | `Element Plus 2.9`（按需自动引入）+ `ECharts 5.6`（动态监控仪表盘） |
+| **Python AI 端** | 核心框架 | `FastAPI` + `Uvicorn`（异步高性能 ASGI 引擎） |
+| | 大模型与向量 | `DashScope 阿里百炼`（Qwen 系列对话 + `text-embedding-v1` 嵌入 + gte-rerank 精排） |
+| | 文档解析提取 | `pdfplumber` / `pypdf` / `python-docx` / `BeautifulSoup4` + `trafilatura`（无 LangChain 依赖，轻量秒级启动） |
+| | 扫描件识别 | `qwen-vl-ocr`（云端）→ `RapidOCR`（本地）**双引擎降级** |
+| | 向量计算 | 混合检索架构（Chroma 余弦匹配 + Rerank 交叉精排打分） |
+| **前端工程** | 架构方案 | `pnpm workspace` 工作区架构（共享 `@mindforge/shared`） |
+| | 核心框架 | `Vue 3.4+` + `TypeScript 5.6` + `Vite 5` |
+| | 状态与路由 | `Pinia 2` + `Vue Router 4`（HTML5 History 路由模式） |
+| | UI 与图表 | `Element Plus 2.7+`（按需自动引入）+ `ECharts 6` |
+
+>**版本以 `pom.xml` / `package.json` 为准。** 前端依赖刻意停在**市面主流档位**而不是最新大版本
+> （Vite 5 而非 6、Pinia 2 而非 3、vue-router 4 而非 5）—— 新大版本的生态与文档还没跟上，踩坑概率高。
 
 ---
 
@@ -132,7 +136,7 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
 
 ### 4. 深度 RAG 对话检索与无门槛优雅降级
 - **首字毫秒级 SSE**：建立流水线流式事件推流机制（`sources` ➔ `delta` ➔ `done` / `error`）。
-- **零门槛自由对话**：用户无需强制绑定知识库，支持默认的“🤖 通用顾问”直接交互。
+- **零门槛自由对话**：用户无需强制绑定知识库，支持默认的“通用顾问”直接交互。
 - **检索未命中优雅降级**：当私域知识库未检索到相关内容时，不再生硬阻断，而是自动切换为通用大模型专业解答，并附带明确的免责与来源标识。
 
 ### 5. 简历深度结构化解析与针对性优化建议
@@ -206,7 +210,9 @@ mindforge-workspace/
    - 脚本已内置系统预设角色（`USER`、`ADMIN`、`SUPER_ADMIN`）、权限项字典与预设测试账号：
      - **普通用户账号**：`zhangsan` / `test-123456`
      - **管理员账号**：`admin` / `admin123`（或使用测试用户 `t_admin` / `test-123456`）
-3. 启动本地 Redis 服务（默认监听 `6379` 端口）。
+3. 启动本地 Redis 服务。
+   >默认端口是 `6379`；本项目的本地开发实践里常另起一个实例在 **`6380`**，
+   > 请以 `application-dev.yml` 里配的端口为准（两边要对上）。
 
 ---
 
@@ -243,20 +249,17 @@ mindforge-workspace/
    ```
 2. 配置虚拟环境并安装依赖：
    ```bash
-   # 使用 uv 极速安装（推荐）
+   # 使用 uv（推荐，依赖定义在 pyproject.toml）
    uv venv --python 3.12
    uv sync
 
-   # 或者使用原生 pip (Windows)
+   # 或使用原生 venv
    python -m venv .venv
-   .\.venv\Scripts\activate
-   pip install -r requirements.txt
-
-   # 或者使用原生 pip (Linux / macOS)
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
+   .\.venv\Scripts\activate        # Linux/macOS: source .venv/bin/activate
+   pip install .
    ```
+   >该仓库**没有 `requirements.txt`** —— 依赖统一声明在 `pyproject.toml` 的 `dependencies`。
+   > 加依赖用 `uv add xxx`，它会自动写进 pyproject。
 3. 环境变量配置：
    - 复制 `.env.example` 为 `.env`；
    - 核心配置项填入：
@@ -309,7 +312,7 @@ mindforge-workspace/
    # 访问地址：http://localhost:5174/admin/
    ```
 
-> 💡 **代理说明**：前端的 `/api` 请求已分别配置在各自的 `vite.config.ts` 中代理转发至 `http://localhost:8080`，本地研发期间无需配置后端 CORS 跨域。
+> **代理说明**：前端的 `/api` 请求已分别配置在各自的 `vite.config.ts` 中代理转发至 `http://localhost:8080`，本地研发期间无需配置后端 CORS 跨域。
 
 ---
 
@@ -352,32 +355,49 @@ event: error     data: {"type":"error","code":50202,"message":"..."}
 
 ## 七、 未来演进与路线图 (Roadmap)
 
-项目整体采用三阶段迭代推进，当前已完成基座搭建，后续演进方向如下：
+> **当前进度以项目规划文档为准**（`ROADMAP.md` 为本地维护文档，不进版本库）。
+> 下面这张图列的是**规划分期**，其中 P0 阶段已全部落地（见括注）。
 
 ```mermaid
 flowchart LR
-    subgraph P0["P0: 核心闭环完善 (近期)"]
+    subgraph P0["P0: 核心闭环完善 已完成"]
         P0_1["求职投递管理看板 (Kanban CRM)"]
         P0_2["公域+私域双层 RAG 自动关联召回"]
-        P0_3["ATS 穿透评分与双栏简历导出"]
+        P0_3["ATS 穿透评分与简历导出"]
     end
 
-    subgraph P1["P1: 拟真度壁垒打造 (中期)"]
+    subgraph P1["P1: 拟真度壁垒打造 (待做)"]
         P1_1["在线白板手撕代码 (Monaco Editor)"]
         P1_2["全双工实时语音面试 (SenseVoice/TTS)"]
         P1_3["代码静态检查与测试用例沙箱执行"]
     end
 
-    subgraph P2["P2: 生态与引流赋能 (中远期)"]
+    subgraph P2["P2: 生态与引流赋能 (待做)"]
         P2_1["Chrome 插件一键抓取 JD 与匹配度透视"]
         P2_2["匿名脱敏高分面经复盘广场"]
-        P2_3["市场分位薪酬测算与多 Offer 对比器"]
+        P2_3["市场分位薪酬测算"]
     end
 
     P0 --> P1 --> P2
 ```
 
-详细功能说明与架构设计方案请参阅完整规划文档：[`ROADMAP.md`](./ROADMAP.md)。
+### 已超期完成的「计划外」能力（原不在上图里）
+
+| 能力 | 状态 |
+| :--- | :--- |
+| 求职投递看板 CRM（8 列泳道 + 关联简历/薪资/下次跟进/备注） | 是 |
+| ATS 关键词跑分（纯本地算法，零 token、毫秒级、结果稳定） | 是 |
+| **面试日历**（`job_event` 表：笔试/一面/二面/HR面多场次 + 看板待办提醒联动） | 是 |
+| 多 Offer 五维加权对比决策器 | 是 |
+| 面试错题本 + 单题 AI 重练 | 是 |
+| 简历在线精修 + AI 改写采纳 + A4 PDF 导出 | 是 |
+| 扫描件 PDF 双引擎 OCR | 是 |
+| 双轨 RAG（官方智库全局共享 + 个人私域联合召回） | 是 |
+| Rerank 交叉精排（未配置/失败自动降级回向量序） | 是 |
+| 安全加固：高危操作二次确认、审计日志归档、登录失败锁定、改密码防爆破 | 是 |
+| 全局 Snowflake 分布式 ID | 是 |
+
+详细功能说明与架构设计方案请参阅项目规划文档（`ROADMAP.md`，本地维护文档，不进版本库）。
 
 ---
 
