@@ -25,6 +25,7 @@ import com.zest.mindforgeai.utils.DocumentStatusUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -84,19 +85,23 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
     private final AuditService auditService;
     private final StorageProperties storageProperties;
     private final AiServiceClient aiServiceClient;
+    /** 手动事务，用来把「只有落库」的那几步收成原子（见 importUrl 的注释） */
+    private final TransactionTemplate transactionTemplate;
 
     public AdminDocumentServiceImpl(DocumentMapper documentMapper,
                                     KnowledgeBaseMapper knowledgeBaseMapper,
                                     FileService fileService,
                                     AuditService auditService,
                                     StorageProperties storageProperties,
-                                    AiServiceClient aiServiceClient) {
+                                    AiServiceClient aiServiceClient,
+                                    TransactionTemplate transactionTemplate) {
         this.documentMapper = documentMapper;
         this.knowledgeBaseMapper = knowledgeBaseMapper;
         this.fileService = fileService;
         this.auditService = auditService;
         this.storageProperties = storageProperties;
         this.aiServiceClient = aiServiceClient;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Override
@@ -210,22 +215,28 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
 
         SysFile sysFile = fileService.uploadBytes(bytes, fileName, "text/markdown;charset=UTF-8", FileService.BIZ_DOCUMENT);
 
-        Document doc = new Document()
-                .setUserId(kb.getUserId())
-                .setKnowledgeBaseId(knowledgeBaseId)
-                .setFileId(sysFile.getId())
-                .setFileName(fileName)
-                .setFileType("MD")
-                .setFileUrl(sysFile.getObjectKey())
-                .setFileSize(sysFile.getFileSize())
-                .setContentHash(sysFile.getContentHash())
-                .setParseStatus(DocumentStatusUtils.PENDING)
-                .setChunkStatus(DocumentStatusUtils.PENDING)
-                .setVectorStatus(DocumentStatusUtils.PENDING);
-        documentMapper.insert(doc);
+        // 只有落库这一步需要原子性 —— 抓取网页和上传 OSS 都要几十秒，
+        // 包进事务会一直占着数据库连接，几个管理员同时导入就能把连接池耗光。
+        // （项目红线：AI/网络调用绝不包事务）
+        Long documentId = transactionTemplate.execute(status -> {
+            Document doc = new Document()
+                    .setUserId(kb.getUserId())
+                    .setKnowledgeBaseId(knowledgeBaseId)
+                    .setFileId(sysFile.getId())
+                    .setFileName(fileName)
+                    .setFileType("MD")
+                    .setFileUrl(sysFile.getObjectKey())
+                    .setFileSize(sysFile.getFileSize())
+                    .setContentHash(sysFile.getContentHash())
+                    .setParseStatus(DocumentStatusUtils.PENDING)
+                    .setChunkStatus(DocumentStatusUtils.PENDING)
+                    .setVectorStatus(DocumentStatusUtils.PENDING);
+            documentMapper.insert(doc);
+            return doc.getId();
+        });
 
         log.info("管理端网页导入文档成功 documentId={} kbId={} fileName={} charCount={}",
-                doc.getId(), knowledgeBaseId, fileName, extractData.charCount());
+                documentId, knowledgeBaseId, fileName, extractData.charCount());
 
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("knowledgeBaseId", knowledgeBaseId);
@@ -236,9 +247,9 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
         detail.put("byAdmin", true);
 
         auditService.recordSuccess(AuditConstants.ACTION_DOCUMENT_UPLOAD,
-                AuditConstants.RESOURCE_DOCUMENT, String.valueOf(doc.getId()), detail);
+                AuditConstants.RESOURCE_DOCUMENT, String.valueOf(documentId), detail);
 
-        return getDetail(doc.getId());
+        return getDetail(documentId);
     }
 
     @Override
