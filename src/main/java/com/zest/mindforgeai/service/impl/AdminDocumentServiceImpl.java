@@ -290,8 +290,14 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
 
         documentMapper.update(null, wrapper);
 
-        log.warn("管理员修改文档状态 documentId={} fileName={} {} -> {}",
-                id, doc.getFileName(), before, dto);
+        // 只打「改了哪些字段」—— 这里没有重新查库，算不出新的聚合状态，
+        // 与其打一个假的 before -> after，不如如实写原状态 + 目标值。
+        // 完整的 before/after 在下面的审计 detail 里。
+        log.warn("管理员修改文档状态 documentId={} fileName={}（原聚合状态 {}）；"
+                        + "parse={} chunk={} vector={} pageCount={} error={}",
+                id, doc.getFileName(), before,
+                dto.getParseStatus(), dto.getChunkStatus(), dto.getVectorStatus(),
+                dto.getPageCount(), dto.getErrorMessage());
 
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("fileName", doc.getFileName());
