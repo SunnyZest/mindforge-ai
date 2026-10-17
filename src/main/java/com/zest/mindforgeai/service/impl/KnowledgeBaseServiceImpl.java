@@ -278,9 +278,9 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
     /**
      * 取知识库并校验归属。
      * <p>
-     * 不存在 → 40403；存在但不属于当前用户 → 40302。
-     * 这里刻意区分两种错误，便于前端排查；知识库 id 是自增的，
-     * 「存在性」本身不算敏感信息（知道了也访问不到）。
+     * 不存在、或者存在但不属于当前用户，<b>都抛 40403</b>。
+     * 刻意不区分两种错误：抛 403 等于告诉调用方「这个 id 存在，只是不归你」，
+     * 相当于帮他确认了别人的数据范围。抛 404 什么都不泄漏。
      */
     private KnowledgeBase requireOwned(Long id) {
         KnowledgeBase kb = getById(id);
