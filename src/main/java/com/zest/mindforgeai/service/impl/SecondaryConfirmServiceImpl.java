@@ -111,7 +111,9 @@ public class SecondaryConfirmServiceImpl implements SecondaryConfirmService {
             try {
                 redis.delete(key);
             } catch (Exception e) {
-                log.warn("核销二次确认 Token 失败 token={}", confirmToken, e);
+                // ⚠️ 只打 userId，绝不打 token 本身 —— 它是 5 分钟内有效的高危操作凭据，
+                //    落进日志等于给能读日志的人留了一把可重放的钥匙。
+                log.warn("核销二次确认 Token 失败 userId={}", userId, e);
             }
             log.info("二次确认 Token 校验通过并已核销 userId={}", userId);
             return;
