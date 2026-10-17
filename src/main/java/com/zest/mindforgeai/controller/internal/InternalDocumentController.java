@@ -74,7 +74,7 @@ public class InternalDocumentController {
     @Operation(summary = "回写文档处理状态")
     @PutMapping("/{id}/status")
     public Result<Void> updateStatus(@PathVariable Long id,
-                                     @RequestBody DocumentStatusUpdateDTO dto) {
+                                     @Valid @RequestBody DocumentStatusUpdateDTO dto) {
         internalDocumentService.updateStatus(id, dto);
         return Result.success();
     }
