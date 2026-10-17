@@ -28,6 +28,7 @@ import org.springframework.web.client.RestClientResponseException;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -73,6 +74,7 @@ public class AiServiceClient {
     private static final String PATH_RESUME_PARSE = "/internal/ai/v1/resumes/parse";
     private static final String PATH_RESUME_ANALYZE = "/internal/ai/v1/resumes/analyze";
     private static final String PATH_RESUME_MATCH = "/internal/ai/v1/resumes/match";
+    private static final String PATH_SALARY_ESTIMATE = "/internal/ai/v1/salary/estimate";
     private static final String PATH_JOB_PARSE = "/internal/ai/v1/jobs/parse";
     private static final String PATH_INTERVIEW_GENERATE = "/internal/ai/v1/interviews/generate";
     private static final String PATH_INTERVIEW_ANALYZE = "/internal/ai/v1/interviews/analyze";
@@ -370,6 +372,27 @@ public class AiServiceClient {
      */
     public ResumeMatchData matchResume(ResumeMatchRequest request) {
         AiEnvelope<ResumeMatchData> envelope = post(PATH_RESUME_MATCH, request,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
+    /**
+     * 薪酬估算：按城市 / 岗位 / 年限推算 P50 / P75 / P90 参考区间。
+     * <p>
+     * ★ <b>这是估算，不是行情</b>：我们没有真实薪酬样本，模型是按其训练数据里的
+     * 岗位画像在推。所以：
+     * <ul>
+     *   <li>调用方必须把 {@code caveat}（免责声明）落库并返回给前端；</li>
+     *   <li>{@code confidence} 只是模型的看法，<b>不能直接采信</b> ——
+     *       服务端还要按城市 / 岗位 / 年限的常见度再钳一次；</li>
+     *   <li>不要给用户看「样本量」「数据来源」之类我们根本没有的东西。</li>
+     * </ul>
+     *
+     * @throws BizException AI_SERVICE_ERROR / AI_SERVICE_TIMEOUT
+     */
+    public SalaryEstimateData estimateSalary(SalaryEstimateRequest request) {
+        AiEnvelope<SalaryEstimateData> envelope = post(PATH_SALARY_ESTIMATE, request,
                 new ParameterizedTypeReference<>() {
                 });
         return envelope.data();
@@ -795,6 +818,43 @@ public class AiServiceClient {
                                      String jobId,
                                      String resumeText,
                                      String jobText) {
+    }
+
+    /**
+     * 薪酬估算入参。
+     * <p>
+     * {@code userId} 只用于 Python 侧的用量记账（scene = SALARY_ESTIMATE），
+     * 不参与估算本身。
+     */
+    public record SalaryEstimateRequest(String userId,
+                                        String city,
+                                        String position,
+                                        Integer yearsOfExperience,
+                                        String education,
+                                        String companyType,
+                                        List<String> skills,
+                                        BigDecimal currentAnnualSalary) {
+    }
+
+    /**
+     * 薪酬估算结果（Python 侧输出，camelCase）。
+     * <p>
+     * ★ 金额单位是<b>元</b>，不是 K、也不是万 —— 单位换算交给前端，
+     * 后端存一个明确的数比存「25.5」再靠约定猜单位可靠。
+     * <p>
+     * {@code confidence} 是模型自评，服务端必须再钳一次（见 SalaryEstimateServiceImpl）。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SalaryEstimateData(Double monthlyP50,
+                                     Double monthlyP75,
+                                     Double monthlyP90,
+                                     Double annualP50,
+                                     Double annualP75,
+                                     Double annualP90,
+                                     Integer monthsPerYear,
+                                     String confidence,
+                                     List<String> basis,
+                                     List<String> factors) {
     }
 
     /**

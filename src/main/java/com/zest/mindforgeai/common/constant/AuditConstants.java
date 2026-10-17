@@ -183,6 +183,9 @@ public final class AuditConstants {
     public static final String ACTION_OFFER_CREATE = "OFFER_CREATE";
     public static final String ACTION_OFFER_DELETE = "OFFER_DELETE";
 
+    /** 薪酬估算：只记真正调了模型的那次（命中缓存不记，否则一条参数点几次就是几条噪音） */
+    public static final String ACTION_SALARY_ESTIMATE = "SALARY_ESTIMATE";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
@@ -204,6 +207,7 @@ public final class AuditConstants {
     public static final String RESOURCE_ALERT = "ALERT";
     public static final String RESOURCE_OFFER = "OFFER";
     public static final String RESOURCE_JOB_EVENT = "JOB_EVENT";
+    public static final String RESOURCE_SALARY_ESTIMATE = "SALARY_ESTIMATE";
 
     /* ---------- 高危操作 ---------- */
 
