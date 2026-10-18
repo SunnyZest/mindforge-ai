@@ -103,6 +103,7 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
 | | ORM 与持久层 | `MyBatis-Plus 3.5.16` + `Druid` 动态连接池 |
 | | 数据源与缓存 | `MySQL 8.0`（InnoDB UTF8MB4） + `Redis`（Lettuce 连接池） |
 | | 接口文档 | `Knife4j / SpringDoc OpenAPI 3`（规范接口契约） |
+| | 邮件通道 | `spring-boot-starter-mail`（标准 SMTP，换服务商只改配置） |
 | **Python AI 端** | 核心框架 | `FastAPI` + `Uvicorn`（异步高性能 ASGI 引擎） |
 | | 大模型与向量 | `DashScope 阿里百炼`（Qwen 系列对话 + `text-embedding-v1` 嵌入 + gte-rerank 精排） |
 | | 文档解析提取 | `pdfplumber` / `pypdf` / `python-docx` / `BeautifulSoup4` + `trafilatura`（无 LangChain 依赖，轻量秒级启动） |
@@ -123,6 +124,8 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
 ### 1. 身份安全与细粒度 RBAC 权限体系
 - **双端隔离登录**：支持普通求职者与管理员独立认证入口，采用统一 `sys_role`、`sys_permission` 资源码拦截。
 - **无状态双 Token 防御**：短效 Access Token（30 分钟）+ 长效 Refresh Token（7 天）；支持 Token 轮转（Rotation）防重放探测，拦截异地异常刷新。
+- **邮箱验证码注册 / 找回密码**：QQ 邮箱 SMTP 发信，6 位验证码 10 分钟有效；**60 秒冷却 + 每日 10 条 + 试错 5 次即作废 + 一次性消费**（Redis `DEL` 返回值判定，防并发重放）。找回密码成功后自动撤销该用户全部 Refresh Token。找回场景对未注册邮箱**同样返回成功但不发信** —— 否则这个公开接口就成了「某邮箱注册过没有」的探测器。
+- **两类唯一性策略（刻意不同）**：用户名 / 邮箱**永久占用**（唯一索引不管逻辑删除，注销后也不可复用，防冒名）；手机号采用**函数唯一索引** `(CASE WHEN deleted = 0 THEN phone ELSE NULL END)`，**账号注销后号码可被新机主使用**。
 - **审计追踪与高危操作告警**：全自动记录操作人、耗时、IP 及资源 ID；危险操作（如批量删除文档、修改 AI 模型配置）自动捕获并生成管理员告警。
 
 ### 2. 多格式文档智能解析与自愈式向量化流水线
@@ -196,6 +199,16 @@ mindforge-workspace/
 - **Python**：`3.12` 及以上（推荐搭配 `uv` 或原生 `venv`）
 - **MySQL**：`8.0+`
 - **Redis**：`6.0+` 或 `7.x`
+
+**邮箱验证码（可选，但注册/找回密码需要）**：QQ 邮箱需先在设置里开启「POP3/SMTP 服务」并取得 16 位
+**授权码**（不是登录密码），然后配置两个环境变量：
+
+```bash
+MAIL_USERNAME=你的QQ号@qq.com
+MAIL_PASSWORD=16位授权码
+```
+
+不配也能启动服务，但发码接口会返回 `50301 验证码邮件发送失败`。
 
 ---
 

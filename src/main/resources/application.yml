@@ -89,6 +89,16 @@ mindforge:
   alert:
     webhook-url: ${MINDFORGE_ALERT_WEBHOOK_URL:}
 
+  # 流式对话线程池。★ maxPoolSize 就是【同时在聊的人数上限】，
+  # 超出的请求会被直接拒绝（AbortPolicy）而不是排队 —— 调大前先确认
+  # 下游扛得住：每个在跑的流还占一条到 Python 的长连接。
+  chat:
+    stream:
+      core-pool-size: 4
+      max-pool-size: 16
+      queue-capacity: 100
+      await-termination-seconds: 30
+
   # 验证码（邮箱 / 短信）。★ 这几个都是【防刷闸门】，不是体验参数：
   # 发码接口必须公开（未登录才需要发码），所以它天生是「邮件轰炸」的入口。
   verification:
