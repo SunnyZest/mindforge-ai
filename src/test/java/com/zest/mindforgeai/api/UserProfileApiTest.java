@@ -273,10 +273,12 @@ class UserProfileApiTest extends AbstractApiTest {
     @DisplayName("注册成功：默认角色 USER，拿到的权限是「用户端」那一套")
     void registerCreatesUserWithDefaultRole() {
         String username = "reg_newbie";
+        String email = username + "@test.local";
 
         var data = post("/app/auth/register", null, Map.of(
                         "username", username,
-                        "email", username + "@test.local",
+                        "email", email,
+                        "code", requestEmailCode(email, "REGISTER"),
                         "password", "reg-123456"))
                 .assertSuccess().data();
 
@@ -286,30 +288,47 @@ class UserProfileApiTest extends AbstractApiTest {
         assertThat(data.path("roles").get(0).asText()).isEqualTo("USER");
         assertThat(data.path("permissions").size()).isGreaterThan(0);
 
+        // 验证码过了就是「已验证」
+        assertThat(jdbc.queryForObject(
+                "SELECT email_verified FROM `user` WHERE username = ?", Integer.class, username))
+                .isEqualTo(1);
+
         // 真能登进去
         assertThat(loginRaw("/app/auth/login", username, "reg-123456").isSuccess()).isTrue();
     }
 
     @Test
-    @DisplayName("邮箱可不填（空着也能注册）")
-    void emailIsOptional() {
-        post("/app/auth/register", null, Map.of("username", "no_email", "password", "reg-123456"))
-                .assertSuccess();
+    @DisplayName("★ 邮箱必填：不传邮箱 → 40001（2026-10-18 起注册必须先验证邮箱）")
+    void emailIsRequired() {
+        post("/app/auth/register", null, Map.of(
+                        "username", "no_email",
+                        "code", "123456",
+                        "password", "reg-123456"))
+                .assertCode(ErrorCode.PARAM_INVALID.getCode());
     }
 
     @Test
     @DisplayName("用户名重复 → 40901")
     void duplicateUsernameIsRejected() {
-        post("/app/auth/register", null, Map.of("username", USER_NAME, "password", "reg-123456"))
+        String email = "dup_username@test.local";
+
+        post("/app/auth/register", null, Map.of(
+                        "username", USER_NAME,
+                        "email", email,
+                        "code", requestEmailCode(email, "REGISTER"),
+                        "password", "reg-123456"))
                 .assertCode(ErrorCode.USER_ALREADY_EXISTS.getCode());
     }
 
     @Test
     @DisplayName("邮箱重复 → 40902")
     void duplicateEmailIsRejected() {
+        String email = USER_NAME + "@test.local";
+
         post("/app/auth/register", null, Map.of(
                         "username", "another_one",
-                        "email", USER_NAME + "@test.local",
+                        "email", email,
+                        "code", requestEmailCode(email, "REGISTER"),
                         "password", "reg-123456"))
                 .assertCode(ErrorCode.STATUS_CONFLICT.getCode());
     }
@@ -329,19 +348,34 @@ class UserProfileApiTest extends AbstractApiTest {
                 "SELECT COUNT(*) FROM `user` WHERE username = ?",
                 Integer.class, "reg_ghost")).isEqualTo(1);
 
-        post("/app/auth/register", null, Map.of("username", "reg_ghost", "password", "reg-123456"))
+        post("/app/auth/register", null, Map.of(
+                        "username", "reg_ghost",
+                        "email", "reg_ghost@test.local",
+                        "code", requestEmailCode("reg_ghost@test.local", "REGISTER"),
+                        "password", "reg-123456"))
                 .assertCode(ErrorCode.USER_ALREADY_EXISTS.getCode());
     }
 
     @Test
     @DisplayName("校验：用户名太短 / 邮箱格式错 / 密码太短 → 40001")
     void registerValidatesInput() {
-        post("/app/auth/register", null, Map.of("username", "ab", "password", "reg-123456"))
+        post("/app/auth/register", null, Map.of(
+                        "username", "ab",
+                        "email", "short@test.local",
+                        "code", "123456",
+                        "password", "reg-123456"))
                 .assertCode(ErrorCode.PARAM_INVALID.getCode());
-        post("/app/auth/register", null, Map.of("username", "ok_user", "password", "reg-123456",
-                        "email", "not-an-email"))
+        post("/app/auth/register", null, Map.of(
+                        "username", "ok_user",
+                        "email", "not-an-email",
+                        "code", "123456",
+                        "password", "reg-123456"))
                 .assertCode(ErrorCode.PARAM_INVALID.getCode());
-        post("/app/auth/register", null, Map.of("username", "ok_user2", "password", "123"))
+        post("/app/auth/register", null, Map.of(
+                        "username", "ok_user2",
+                        "email", "ok_user2@test.local",
+                        "code", "123456",
+                        "password", "123"))
                 .assertCode(ErrorCode.PARAM_INVALID.getCode());
     }
 

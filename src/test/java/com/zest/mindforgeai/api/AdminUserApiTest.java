@@ -234,6 +234,47 @@ class AdminUserApiTest extends AbstractApiTest {
                 .assertCode(ErrorCode.USER_NOT_FOUND.getCode());
     }
 
+    // ------------------------------------------------------------ 手机号唯一性
+
+    @Test
+    @DisplayName("★ 手机号：两个活跃账号不能相同 → 40902")
+    void phoneMustBeUniqueAmongActiveUsers() {
+        long first = createAccount("au_phone_a");
+        long second = createAccount("au_phone_b");
+
+        put("/admin/users/" + first, adminToken, Map.of("phone", "13800000001")).assertSuccess();
+        put("/admin/users/" + second, adminToken, Map.of("phone", "13800000001"))
+                .assertCode(ErrorCode.STATUS_CONFLICT.getCode());
+    }
+
+    @Test
+    @DisplayName("★ 手机号：账号注销后号码可以被别人用（和邮箱的规则刻意不同）")
+    void phoneIsReusableAfterAccountDeleted() {
+        long first = createAccount("au_phone_gone");
+        long second = createAccount("au_phone_new");
+
+        put("/admin/users/" + first, adminToken, Map.of("phone", "13800000002")).assertSuccess();
+
+        // 注销第一个账号（逻辑删除），号码应当被释放
+        jdbc.update("UPDATE `user` SET deleted = 1 WHERE id = ?", first);
+
+        put("/admin/users/" + second, adminToken, Map.of("phone", "13800000002")).assertSuccess();
+        assertThat(jdbc.queryForObject(
+                "SELECT phone FROM `user` WHERE id = ?", String.class, second))
+                .isEqualTo("13800000002");
+    }
+
+    @Test
+    @DisplayName("手机号：空白字符串不会撞唯一索引（归一成 NULL）")
+    void blankPhoneIsNormalizedToNull() {
+        long first = createAccount("au_phone_blank_a");
+        long second = createAccount("au_phone_blank_b");
+
+        // 两个账号都传空串：如果不归一化，'' 也是值，第二次会撞索引
+        put("/admin/users/" + first, adminToken, Map.of("phone", "   ")).assertSuccess();
+        put("/admin/users/" + second, adminToken, Map.of("phone", "")).assertSuccess();
+    }
+
     // ------------------------------------------------------------ 启停
 
     @Test

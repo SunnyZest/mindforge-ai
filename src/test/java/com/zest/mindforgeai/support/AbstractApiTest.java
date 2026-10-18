@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zest.mindforgeai.client.AiServiceClient;
 import com.zest.mindforgeai.pojo.vo.StoredFileVO;
 import com.zest.mindforgeai.service.FileStorageService;
+import com.zest.mindforgeai.service.VerificationCodeSender;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -25,6 +27,7 @@ import org.springframework.util.MultiValueMap;
 import javax.sql.DataSource;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -106,14 +109,52 @@ public abstract class AbstractApiTest {
     @MockitoBean
     protected FileStorageService fileStorageService;
 
+    /**
+     * 验证码通道一律 mock 掉。
+     * <p>
+     * ⚠️ 不 mock 的话测试会真的去连 SMTP：要么因为没配授权码失败，
+     * 要么（更糟）给真实邮箱发一堆验证码。
+     */
+    @MockitoBean
+    protected VerificationCodeSender verificationCodeSender;
+
+    @Autowired
+    protected StringRedisTemplate redis;
+
     protected JdbcTemplate jdbc;
 
     @BeforeEach
     void resetState() {
         jdbc = new JdbcTemplate(dataSource);
         clearBusinessData();
+        clearVerificationKeys();
         ensureTestAccounts();
         stubFileStorage();
+        stubVerificationSender();
+    }
+
+    /**
+     * mock 的通道要告诉 service 自己是哪个通道。
+     * <p>
+     * ⚠️ 不配的话 {@code channel()} 返回 null —— 服务启动时按通道建索引会炸
+     * （Map.copyOf 不接受 null 键），表现为「ApplicationContext 加载失败」，
+     * 33 个用例集体 error，但堆栈里看不出跟验证码有关。
+     */
+    private void stubVerificationSender() {
+        when(verificationCodeSender.channel()).thenReturn("EMAIL");
+    }
+
+    /**
+     * 清掉验证码相关的 Redis key。
+     * <p>
+     * ⚠️ 必须清：60 秒冷却和「每天 10 条」都在 Redis 里跨用例残留，
+     * 不清的话第二个用例发码会直接撞冷却（42904），看起来像功能坏了。
+     */
+    private void clearVerificationKeys() {
+        Set<String> keys = redis.keys("mf:code:*");
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
     }
 
     /**
@@ -184,6 +225,28 @@ public abstract class AbstractApiTest {
     protected Long createAccount(String username) {
         ensureAccount(username, ROLE_USER);
         return userId(username);
+    }
+
+    /**
+     * 走真实链路取一个邮箱验证码：调发码接口 → 从 Redis 读回来。
+     * <p>
+     * 发送通道已被 mock（不会真发信），但「生成 + 存 Redis + 冷却 + 每日计数」都是真的，
+     * 比直接往 Redis 塞一个假码更接近线上。
+     *
+     * @param scene {@code REGISTER} / {@code RESET_PASSWORD}
+     */
+    protected String requestEmailCode(String email, String scene) {
+        post("/app/auth/verification-code", null, Map.of(
+                "channel", "EMAIL",
+                "target", email,
+                "scene", scene)).assertSuccess();
+
+        Object code = redis.opsForHash().get(
+                "mf:code:EMAIL:" + scene + ":" + email.trim().toLowerCase(), "code");
+        if (code == null) {
+            throw new IllegalStateException("验证码没有写进 Redis：" + email);
+        }
+        return String.valueOf(code);
     }
 
     // ---------- 登录 ----------
