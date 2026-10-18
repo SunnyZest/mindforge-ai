@@ -23,4 +23,37 @@
         WHERE email = #{email}
     </select>
 
+    <!--
+      找回密码用：只数【活跃】账号（deleted = 0）。
+
+      和 countByEmailIgnoreDeleted 分开的原因：邮箱永久占用，
+      但已注销的账号不能被找回 —— 所以「有没有注册」只该数现在还活着的。
+    -->
+    <select id="countByEmailActive" resultType="int">
+        SELECT COUNT(*)
+        FROM user
+        WHERE email = #{email}
+          AND deleted = 0
+    </select>
+
+    <!--
+      手机号唯一性：只统计【活跃】用户（deleted = 0）
+
+      ⚠️ 和上面两个查询的口径刻意不同：
+        用户名 / 邮箱永久占用（注销后也不能再用，防冒名）；
+        手机号则允许在账号注销后被别人使用 —— 号码是运营商资源，
+        长期占用会坑到新机主。数据库侧由函数唯一索引 uk_user_phone 兜底：
+            UNIQUE (CASE WHEN deleted = 0 THEN phone ELSE NULL END)
+        已删除的行在索引里是 NULL，NULL 不参与唯一性，所以这里也必须只算活跃的。
+    -->
+    <select id="countByPhoneActive" resultType="int">
+        SELECT COUNT(*)
+        FROM user
+        WHERE phone = #{phone}
+          AND deleted = 0
+        <if test="excludeUserId != null">
+            AND id != #{excludeUserId}
+        </if>
+    </select>
+
 </mapper>

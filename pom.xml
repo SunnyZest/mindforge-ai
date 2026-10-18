@@ -51,6 +51,19 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
         <!--
+            邮件：邮箱验证码（注册 / 找回密码）。
+
+            只引入 starter 不写死任何服务商 —— spring.mail.* 走标准 SMTP，
+            QQ 邮箱、阿里云邮件推送、腾讯云 SES、企业邮都能用同一份代码，
+            换服务商只改配置。
+            ⚠️ QQ 邮箱的密码位要填【授权码】（16 位），不是登录密码，
+               且需先在邮箱设置里开启 SMTP 服务。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <!--
             Redis：限流计数、登录失败计数。
 
             选它而不是进程内缓存（Caffeine）的原因：计数要跨实例共享。

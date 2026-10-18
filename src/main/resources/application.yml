@@ -37,6 +37,35 @@ spring:
       username: ${mindforge.datasource.username}
       password: ${mindforge.datasource.password}
 
+  # 邮件（邮箱验证码）。走标准 SMTP，换服务商只改这里，代码不动。
+  #
+  # ⚠️ QQ 邮箱三个坑：
+  #   ① password 要填【授权码】（16 位），不是 QQ 登录密码；
+  #   ② 得先去邮箱设置里开启「POP3/SMTP 服务」，授权码是开启后才生成的；
+  #   ③ From 必须等于 username（QQ 不允许伪造发件人），显示名在
+  #      mindforge.verification.from-name 里配。
+  #
+  # ⚠️ 凭据只走环境变量，不写进这个文件 —— 它是要进版本库的。
+  #    IDEA 里配在 Run Configuration 的 Environment variables：
+  #      MAIL_USERNAME=你的QQ号@qq.com;MAIL_PASSWORD=授权码
+  mail:
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          # 465 端口必须用 SSL（QQ 邮箱的 587 才用 STARTTLS）
+          ssl:
+            enable: true
+          # 三个超时都要设：不设的话 SMTP 卡住会把请求线程一起吊死
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
 mybatis-plus:
   # 复杂 SQL 写在这里的 XML 中（简单查询仍可用注解，但建议统一走 XML）
   # 这是 MP 的默认值，写出来是为了明确 XML 的存放位置
@@ -59,6 +88,19 @@ mindforge:
   #                 生产环境用环境变量注入：MINDFORGE_ALERT_WEBHOOK_URL
   alert:
     webhook-url: ${MINDFORGE_ALERT_WEBHOOK_URL:}
+
+  # 验证码（邮箱 / 短信）。★ 这几个都是【防刷闸门】，不是体验参数：
+  # 发码接口必须公开（未登录才需要发码），所以它天生是「邮件轰炸」的入口。
+  verification:
+    code-length: 6
+    ttl-minutes: 10
+    # 重发冷却（秒）
+    cooldown-seconds: 60
+    # 同一目标每天最多几条
+    daily-limit: 10
+    # 同一目标最多试错几次，超了这条码直接作废
+    max-attempts: 5
+    from-name: MindForge AI
 
   # 限流与登录保护
   security:
