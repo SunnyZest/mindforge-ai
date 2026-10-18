@@ -84,6 +84,18 @@ public class EmailVerificationCodeSender implements VerificationCodeSender {
                 : "注册验证码";
     }
 
+    /**
+     * 邮件正文。
+     *
+     * <p>⚠️ 排版有个坑，改文案时别踩：很多邮箱客户端的<b>列表页摘要</b>会把换行去掉、
+     * 再交给自己的「验证码识别」抓一串数字。如果码后面紧跟着另一个数字，
+     * 抓出来的就是两个数字连起来的长度 —— 用户会在列表里看到一个 8 位的「验证码」，
+     * 点进去才是真的 6 位。
+     *
+     * <p>所以这里刻意用「本验证码 10 分钟内有效」而不是「10 分钟内有效」：
+     * 中间隔了汉字，无论客户端怎么折叠空白，码和数字都连不成一串。
+     * 那条 4 空格缩进只是视觉上让码更显眼，不指望它来分隔。
+     */
     private String bodyOf(String code, String scene) {
         String action = VerificationConstants.SCENE_RESET_PASSWORD.equals(scene)
                 ? "重置密码"
@@ -93,7 +105,7 @@ public class EmailVerificationCodeSender implements VerificationCodeSender {
 
                     %s
 
-                %d 分钟内有效。如果不是你本人操作，请忽略这封邮件 —— 你的账号不会有任何变化。
+                本验证码 %d 分钟内有效。如果不是你本人操作，请忽略这封邮件 —— 你的账号不会有任何变化。
                 请勿把验证码告诉任何人，我们的工作人员不会向你索要它。
                 """.formatted(action, code, properties.getTtlMinutes());
     }
