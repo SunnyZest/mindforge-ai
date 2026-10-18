@@ -617,7 +617,10 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
                     long rid = Long.parseLong(dto.getLinkedResumeId().trim());
                     Resume resume = resumeMapper.selectById(rid);
                     if (resume == null || !resume.getUserId().equals(SecurityUtils.getUserId())) {
-                        throw new BizException(ErrorCode.PARAM_INVALID, "所选简历不存在或不属于当前用户");
+                        // ⚠️ 必须是 40409 而不是 40001：越权一律抛「不存在」，否则
+                        //    等于告诉调用方「这个 id 存在、只是不归你」。
+                        throw new BizException(ErrorCode.RESUME_NOT_FOUND,
+                                "所选简历不存在或不属于当前用户");
                     }
                     job.setLinkedResumeId(rid);
                 } catch (NumberFormatException e) {

@@ -164,12 +164,22 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             throw new BizException(ErrorCode.STATUS_CONFLICT, "邮箱已被其他用户使用");
         }
 
+        // 手机号：只在【活跃账号】之间唯一。
+        // ⚠️ 和邮箱的规则刻意不同 —— 号码是运营商资源，账号注销后应当能被新机主使用，
+        //    所以查的是 deleted = 0 的那批，与数据库上的函数唯一索引 uk_user_phone 口径一致。
+        // 空白归一成 null：不然两个「清空手机号」的账号会互相撞唯一索引（'' 也是值）
+        String phone = StringUtils.hasText(dto.getPhone()) ? dto.getPhone().trim() : null;
+        if (phone != null && !phone.equals(user.getPhone())
+                && baseMapper.countByPhoneActive(phone, userId) > 0) {
+            throw new BizException(ErrorCode.STATUS_CONFLICT, "手机号已被其他用户使用");
+        }
+
         // MyBatis-Plus 默认策略：null 字段不进 UPDATE 语句 → 天然支持局部更新
         updateById(new User()
                 .setId(userId)
                 .setNickname(dto.getNickname())
                 .setEmail(dto.getEmail())
-                .setPhone(dto.getPhone())
+                .setPhone(phone)
                 .setAvatarUrl(dto.getAvatarUrl())
                 .setUpdatedAt(LocalDateTime.now()));
 
@@ -285,10 +295,11 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             }
         }
 
-        // ② 账号本身复用 register()：唯一性检查（含已逻辑删除的）、BCrypt 加密、
+        // ② 账号本身复用 UserService 的落库逻辑：唯一性检查（含已逻辑删除的）、BCrypt 加密、
         //    默认角色绑定都在那里。用户名 / 邮箱「一经使用即永久占用」的规则
         //    只该有一处实现，在这里重写一遍迟早会和那边走样。
-        User user = userService.register(dto.getUsername(), dto.getEmail(), dto.getPassword());
+        //    ⚠️ 用 createByAdmin 而不是 register —— 管理员代建没有验证码可验。
+        User user = userService.createByAdmin(dto.getUsername(), dto.getEmail(), dto.getPassword());
 
         // ③ 昵称：管理员指定时覆盖 register 的默认值（默认与用户名相同）
         if (StringUtils.hasText(dto.getNickname())) {

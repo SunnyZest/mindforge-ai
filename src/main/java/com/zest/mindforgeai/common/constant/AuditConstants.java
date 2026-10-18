@@ -55,6 +55,9 @@ public final class AuditConstants {
     /** 用户修改密码（成功和失败都记 —— 拿着有效 token 却不知道原密码，是可疑信号） */
     public static final String ACTION_USER_CHANGE_PASSWORD = "USER_CHANGE_PASSWORD";
 
+    /** 未登录的「找回密码」。和改密码分开记：这条是「凭邮箱验证码重置」，审计时性质不同 */
+    public static final String ACTION_USER_RESET_PASSWORD = "USER_RESET_PASSWORD";
+
     /** 创建角色 */
     public static final String ACTION_ROLE_CREATE = "ROLE_CREATE";
 

@@ -2,8 +2,10 @@ package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.constant.RoleConstants;
+import com.zest.mindforgeai.common.constant.VerificationConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.PermissionMapper;
 import com.zest.mindforgeai.mapper.RoleMapper;
@@ -12,13 +14,20 @@ import com.zest.mindforgeai.mapper.UserRoleMapper;
 import com.zest.mindforgeai.pojo.entity.SysRole;
 import com.zest.mindforgeai.pojo.entity.SysUserRole;
 import com.zest.mindforgeai.pojo.entity.User;
+import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.RefreshTokenService;
 import com.zest.mindforgeai.service.UserService;
+import com.zest.mindforgeai.service.VerificationCodeService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * 用户服务实现
@@ -26,6 +35,7 @@ import java.util.List;
  * @author crx
  * @since 2026-10-03
  */
+@Slf4j
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
 
@@ -33,20 +43,59 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
     private final PermissionMapper permissionMapper;
+    private final VerificationCodeService verificationCodeService;
+    private final RefreshTokenService refreshTokenService;
+    private final AuditService auditService;
 
     public UserServiceImpl(PasswordEncoder passwordEncoder,
                            UserRoleMapper userRoleMapper,
                            RoleMapper roleMapper,
-                           PermissionMapper permissionMapper) {
+                           PermissionMapper permissionMapper,
+                           VerificationCodeService verificationCodeService,
+                           RefreshTokenService refreshTokenService,
+                           AuditService auditService) {
         this.passwordEncoder = passwordEncoder;
         this.userRoleMapper = userRoleMapper;
         this.roleMapper = roleMapper;
         this.permissionMapper = permissionMapper;
+        this.verificationCodeService = verificationCodeService;
+        this.refreshTokenService = refreshTokenService;
+        this.auditService = auditService;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public User register(String username, String email, String rawPassword) {
+    public User register(String username, String email, String code, String rawPassword) {
+        // ★ 先验证邮箱：注册必须先证明「你拥有这个邮箱」。
+        //   顺序很关键 —— 放在重名检查之前，否则「用户名是否被占用」就成了
+        //   不用验证码就能探测的信息（拿别人的邮箱也能试）。
+        String normalizedEmail = email == null ? null : email.trim().toLowerCase(Locale.ROOT);
+        verificationCodeService.verifyAndConsume(
+                VerificationConstants.CHANNEL_EMAIL,
+                normalizedEmail,
+                VerificationConstants.SCENE_REGISTER,
+                code);
+
+        // 验证码刚验过，所以是「已验证」
+        return doCreate(username, normalizedEmail, rawPassword, 1);
+    }
+
+    /**
+     * 管理端代建账号。
+     * <p>
+     * ★ <b>跳过验证码</b>：管理员代建是可信动作，没有「证明邮箱归属」这一步。
+     * 所以 {@code email_verified} 记 <b>0</b> —— 这个邮箱确实没被证明过，
+     * 记 1 等于撒谎（以后真要做「验证邮箱才能找回密码」时会踩到）。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public User createByAdmin(String username, String email, String rawPassword) {
+        return doCreate(username, normalizeEmail(email), rawPassword, 0);
+    }
+
+    /** 落库 + 绑定默认角色。唯一性检查也在这里 —— 只此一处，别在别处再写一遍 */
+    private User doCreate(String username, String normalizedEmail,
+                          String rawPassword, int emailVerified) {
         // 用「包含已逻辑删除」的统计做唯一性检查：
         // user 表有 uk_user_username / uk_user_email 唯一索引，而唯一约束不管逻辑删除，
         // 所以用户名和邮箱是【永久占用】的 —— 已注销账号的名字也不能再注册（类似 GitHub，防冒名）。
@@ -55,13 +104,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (baseMapper.countByUsernameIgnoreDeleted(username) > 0) {
             throw new BizException(ErrorCode.USER_ALREADY_EXISTS, "用户名已存在");
         }
-        if (StringUtils.hasText(email) && baseMapper.countByEmailIgnoreDeleted(email) > 0) {
+        if (StringUtils.hasText(normalizedEmail)
+                && baseMapper.countByEmailIgnoreDeleted(normalizedEmail) > 0) {
             throw new BizException(ErrorCode.STATUS_CONFLICT, "邮箱已被使用");
         }
 
         User user = new User()
                 .setUsername(username)
-                .setEmail(email)
+                .setEmail(normalizedEmail)
+                .setEmailVerified(emailVerified)
                 .setPasswordHash(passwordEncoder.encode(rawPassword))
                 .setNickname(username)
                 .setStatus(1)
@@ -77,6 +128,53 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                     .setRoleId(defaultRole.getId()));
         }
         return user;
+    }
+
+    /** 邮箱统一小写：{@code Foo@QQ.com} 和 {@code foo@qq.com} 是同一个邮箱，不归一化会绕过唯一性 */
+    private String normalizeEmail(String email) {
+        return StringUtils.hasText(email) ? email.trim().toLowerCase(Locale.ROOT) : null;
+    }
+
+    /**
+     * 找回密码。
+     * <p>
+     * ★ <b>邮箱没注册过也返回成功</b>：否则这个公开接口就成了「这个邮箱注册过没有」的探测器。
+     * 验证码照常消费（它确实发到了那个邮箱，不用就浪费了）。
+     * <p>
+     * ⚠️ 改完密码要<b>撤销该用户全部 refreshToken</b>：密码都丢了，说明账号可能已经被人登着，
+     * 不撤销的话对方能一直续期下去（access token 30 分钟，但 refresh 能续命）。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void resetPasswordByEmail(String email, String code, String newPassword) {
+        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
+
+        verificationCodeService.verifyAndConsume(
+                VerificationConstants.CHANNEL_EMAIL,
+                normalizedEmail,
+                VerificationConstants.SCENE_RESET_PASSWORD,
+                code);
+
+        // MP 的逻辑删除会自动加 deleted = 0，已注销的账号不能被找回（它的邮箱也没法注册新号 ——
+        // 邮箱是永久占用的，这算已知的边角情况，先如实记录）
+        User user = getOne(new LambdaQueryWrapper<User>().eq(User::getEmail, normalizedEmail));
+        if (user == null) {
+            log.info("找回密码：邮箱未注册，静默返回成功（不泄露注册状态）");
+            return;
+        }
+
+        updateById(new User()
+                .setId(user.getId())
+                .setPasswordHash(passwordEncoder.encode(newPassword))
+                .setUpdatedAt(LocalDateTime.now()));
+
+        refreshTokenService.revokeAll(user.getId());
+
+        auditService.recordSuccess(AuditConstants.ACTION_USER_RESET_PASSWORD,
+                AuditConstants.RESOURCE_USER, String.valueOf(user.getId()),
+                Map.of("byEmail", true));
+
+        log.info("找回密码成功 userId={}（已撤销全部 refreshToken）", user.getId());
     }
 
     @Override

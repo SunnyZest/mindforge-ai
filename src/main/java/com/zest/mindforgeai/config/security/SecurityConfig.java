@@ -39,6 +39,11 @@ public class SecurityConfig {
             // logout：靠 body 里的 refreshToken 认证，不依赖 access token
             "/app/auth/refresh",
             "/app/auth/logout",
+            // 验证码与找回密码：都是「还没登录」的场景。
+            // ⚠️ 正因为公开，发码接口的限流（60 秒冷却 + 每日上限）就是唯一的闸门，
+            //    没有它就是一个免费的邮件轰炸入口。
+            "/app/auth/verification-code",
+            "/app/auth/reset-password",
             // ⚠️ 头像必须公开：它要能被 <img src> 直接加载，
             //    而 img 标签【带不上】Authorization 头。
             //    安全边界由接口自己兜（只允许 biz_type=avatars 的文件），

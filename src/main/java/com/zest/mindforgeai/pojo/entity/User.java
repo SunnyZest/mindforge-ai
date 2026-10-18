@@ -38,6 +38,18 @@ public class User implements Serializable {
     @Schema(description = "用户邮箱")
     private String email;
 
+    /**
+     * 邮箱是否已验证：0 未验证 / 1 已验证。
+     * <p>
+     * ★ 验证码只证明「此刻你拥有这个邮箱」，而「已验证」是长期状态 ——
+     * 不落这个标记的话，每次登录、每次找回密码都得重新发码。
+     * <p>
+     * 现在注册时必然过验证码，所以新账号都是 1；历史账号是 0，
+     * 下次改邮箱（走验证流程）时才会变成 1。
+     */
+    @Schema(description = "邮箱是否已验证：0 未验证 / 1 已验证")
+    private Integer emailVerified;
+
     @Schema(description = "手机号")
     private String phone;
 

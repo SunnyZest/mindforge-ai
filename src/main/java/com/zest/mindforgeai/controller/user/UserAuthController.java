@@ -8,6 +8,8 @@ import com.zest.mindforgeai.pojo.dto.ChangePasswordDTO;
 import com.zest.mindforgeai.pojo.dto.LoginDTO;
 import com.zest.mindforgeai.pojo.dto.RefreshTokenDTO;
 import com.zest.mindforgeai.pojo.dto.RegisterDTO;
+import com.zest.mindforgeai.pojo.dto.ResetPasswordDTO;
+import com.zest.mindforgeai.pojo.dto.SendVerificationCodeDTO;
 import com.zest.mindforgeai.pojo.entity.User;
 import com.zest.mindforgeai.pojo.vo.LoginVO;
 import com.zest.mindforgeai.pojo.vo.TokenVO;
@@ -18,6 +20,7 @@ import com.zest.mindforgeai.service.RefreshTokenService;
 import com.zest.mindforgeai.service.SecondaryConfirmService;
 import com.zest.mindforgeai.service.UserProfileService;
 import com.zest.mindforgeai.service.UserService;
+import com.zest.mindforgeai.service.VerificationCodeService;
 import com.zest.mindforgeai.utils.ClientIpResolver;
 import com.zest.mindforgeai.utils.JwtUtil;
 import com.zest.mindforgeai.utils.SecurityUtils;
@@ -64,6 +67,7 @@ public class UserAuthController {
     private final ClientIpResolver ipResolver;
     private final UserProfileService userProfileService;
     private final SecondaryConfirmService secondaryConfirmService;
+    private final VerificationCodeService verificationCodeService;
 
     public UserAuthController(AuthenticationManager authenticationManager,
                               JwtUtil jwtUtil,
@@ -73,7 +77,8 @@ public class UserAuthController {
                               LoginAttemptService loginAttemptService,
                               ClientIpResolver ipResolver,
                               UserProfileService userProfileService,
-                              SecondaryConfirmService secondaryConfirmService) {
+                              SecondaryConfirmService secondaryConfirmService,
+                              VerificationCodeService verificationCodeService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.userService = userService;
@@ -83,13 +88,35 @@ public class UserAuthController {
         this.ipResolver = ipResolver;
         this.userProfileService = userProfileService;
         this.secondaryConfirmService = secondaryConfirmService;
+        this.verificationCodeService = verificationCodeService;
+    }
+
+    @Operation(summary = "发送邮箱/短信验证码",
+            description = "公开接口。受 60 秒冷却 + 每日上限约束；"
+                    + "scene 决定邮件文案（REGISTER / RESET_PASSWORD）")
+    @SecurityRequirements   // 公开接口：未登录的用户才需要发码
+    @PostMapping("/verification-code")
+    public Result<Void> sendVerificationCode(@Valid @RequestBody SendVerificationCodeDTO dto) {
+        verificationCodeService.send(dto.getChannel(), dto.getTarget(), dto.getScene());
+        // 刻意不回任何信息（不返回「该邮箱是否已注册」）—— 那等于送一个探测接口
+        return Result.success();
+    }
+
+    @Operation(summary = "找回密码（邮箱验证码）",
+            description = "未登录可用。邮箱没注册过也返回成功，避免被用来探测账号是否存在")
+    @SecurityRequirements
+    @PostMapping("/reset-password")
+    public Result<Void> resetPassword(@Valid @RequestBody ResetPasswordDTO dto) {
+        userService.resetPasswordByEmail(dto.getEmail(), dto.getCode(), dto.getNewPassword());
+        return Result.success();
     }
 
     @Operation(summary = "用户注册")
     @SecurityRequirements   // 公开接口：注册无需认证，摘掉文档上的锁标记
     @PostMapping("/register")
     public Result<UserInfoVO> register(@Valid @RequestBody RegisterDTO dto) {
-        User user = userService.register(dto.getUsername(), dto.getEmail(), dto.getPassword());
+        User user = userService.register(
+                dto.getUsername(), dto.getEmail(), dto.getCode(), dto.getPassword());
         List<String> roles = userService.listRoleCodes(user.getId());
 
         log.info("用户注册成功 userId={} username={} roles={}",

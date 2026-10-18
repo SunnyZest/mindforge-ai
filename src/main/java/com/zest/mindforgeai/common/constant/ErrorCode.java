@@ -18,6 +18,8 @@ public enum ErrorCode {
 
     PARAM_INVALID(40001, "参数校验失败"),
     REQUEST_MALFORMED(40002, "请求格式错误"),
+    /** 验证码错 / 过期 / 试错超限 —— 三种情况合并成一个码，不给攻击者区分的机会 */
+    VERIFICATION_CODE_INVALID(40003, "验证码不正确或已过期"),
 
     UNAUTHORIZED(40101, "未登录"),
     TOKEN_EXPIRED(40102, "Token 已过期"),
@@ -67,11 +69,15 @@ public enum ErrorCode {
     TOO_MANY_REQUESTS(42901, "请求过于频繁，请稍后再试"),
     LOGIN_TOO_MANY_ATTEMPTS(42902, "登录失败次数过多，账号已临时锁定"),
     PASSWORD_CHANGE_TOO_MANY_ATTEMPTS(42903, "修改密码失败次数过多，账号已临时锁定"),
+    /** 验证码发送太频繁（60 秒冷却 / 每日上限）。和 42901 分开：前端要提示「X 秒后可重发」 */
+    VERIFICATION_TOO_FREQUENT(42904, "验证码发送过于频繁，请稍后再试"),
 
     SYSTEM_ERROR(50001, "系统内部异常"),
     AI_SERVICE_ERROR(50201, "AI 服务异常"),
     LLM_CALL_FAILED(50202, "LLM 调用失败"),
     VECTOR_DB_ERROR(50203, "向量数据库异常"),
+    /** 邮件通道异常（SMTP 未配置 / 服务商拒绝）。和 502xx 分开：这不是 AI 的问题 */
+    EMAIL_SEND_FAILED(50301, "验证码邮件发送失败，请稍后重试"),
     AI_SERVICE_TIMEOUT(50401, "AI 服务超时");
 
     /** 错误码 */
