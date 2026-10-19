@@ -124,7 +124,7 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
 ### 1. 身份安全与细粒度 RBAC 权限体系
 - **双端隔离登录**：支持普通求职者与管理员独立认证入口，采用统一 `sys_role`、`sys_permission` 资源码拦截。
 - **同一把密码、两种登录标识**：用户端登录框可切换「用户名 / 邮箱」，后端 `CustomUserDetailsService` 先按用户名查、未命中且含 `@` 再按邮箱查（**用户名优先**，所以用户名恰好长得像邮箱也不会串号）。邮箱归一化为 trim + 小写；`LoginDTO` 的长度上限随之放宽到 64（`user.email varchar(64)`），Redis 失败计数仍在拼接前截断到 32。
-- **无状态双 Token 防御**：短效 Access Token（30 分钟）+ 长效 Refresh Token（7 天）；支持 Token 轮转（Rotation）防重放探测，拦截异地异常刷新。
+- **无状态双 Token 防御**：短效 Access Token（30 分钟）+ 长效 Refresh Token（14 天）；支持 Token 轮转（Rotation）防重放探测，拦截异地异常刷新。
 - **邮箱验证码注册 / 找回密码**：QQ 邮箱 SMTP 发信，6 位验证码 10 分钟有效；**60 秒冷却 + 每日 10 条 + 试错 5 次即作废 + 一次性消费**（Redis `DEL` 返回值判定，防并发重放）。找回密码成功后自动撤销该用户全部 Refresh Token。找回场景对未注册邮箱**同样返回成功但不发信** —— 否则这个公开接口就成了「某邮箱注册过没有」的探测器。
 - **两类唯一性策略（刻意不同）**：用户名 / 邮箱**永久占用**（唯一索引不管逻辑删除，注销后也不可复用，防冒名）；手机号采用**函数唯一索引** `(CASE WHEN deleted = 0 THEN phone ELSE NULL END)`，**账号注销后号码可被新机主使用**。
 - **审计追踪与高危操作告警**：全自动记录操作人、耗时、IP 及资源 ID；危险操作（如批量删除文档、修改 AI 模型配置）自动捕获并生成管理员告警。
@@ -223,7 +223,7 @@ MAIL_PASSWORD=16位授权码
    - 导入 `mindforge-ai` 根目录提供的 [`mindforge-schema.sql`](./mindforge-schema.sql) 文件；
    - 脚本已内置系统预设角色（`USER`、`ADMIN`、`SUPER_ADMIN`）、权限项字典与预设测试账号：
      - **普通用户账号**：`zhangsan` / `test-123456`
-     - **管理员账号**：`admin` / `admin123`（或使用测试用户 `t_admin` / `test-123456`）
+     - **管理员账号**：`admin` / `admin123`
 3. 启动本地 Redis 服务。
    >默认端口是 `6379`；本项目的本地开发实践里常另起一个实例在 **`6380`**，
    > 请以 `application-dev.yml` 里配的端口为准（两边要对上）。
@@ -237,7 +237,7 @@ MAIL_PASSWORD=16位授权码
    cd mindforge-ai
    ```
 2. 检查 `src/main/resources/application-dev.yml` 配置：
-   - 确认 MySQL 连接用户名密码（默认 `root / 123456`）；
+   - 确认 MySQL 连接用户名密码（**以 `application-dev.yml` 为准**，开发库用的是 `mind` 账号，不是 `root`）；
    - 确认 Redis 地址及端口；
    - 确认对象存储配置（默认支持 `LOCAL` 本地文件目录，无需开通公网 OSS 即可运行）；
    - 确认内部服务通讯令牌 `mindforge.internal.service-token`（用于 Python 与 Java 相互鉴权）。
@@ -338,19 +338,32 @@ MAIL_PASSWORD=16位授权码
 - `/api/internal/**`：供 Python AI 微服务反向调用 Java（不走用户 JWT，必须在 Header 中携带 `X-Service-Token`）。
 - `/internal/ai/v1/**`：供 Java 调用 Python 计算引擎（必须在 Header 中携带 `X-Service-Token` 与链路追踪 `X-Trace-Id`）。
 
-### 2. 流式问答 SSE 契约（`/internal/ai/v1/rag/chat/stream`）
+### 2. 规模速览（2026-10-19 实测）
+
+| 维度 | 数量 |
+| :--- | :--- |
+| HTTP 端点 | **152**（用户端 86 / 管理端 58 / 内部 8） |
+| 数据库表 / 实体 | **29 / 29**（`id` 全为雪花，无一张表用 `AUTO_INCREMENT`） |
+| 权限码 | **54**（用户端 29 / 管理端 25），角色 3 个 |
+| 业务错误码 | **41**（含 `0` 成功） |
+
+> 逐端点的路径、权限码、返回类型与全部错误码，见 API 开发文档
+> `MindForge-AI-API开发文档-双前端单后端-RBAC.md`（本地维护文档，不进版本库）。
+
+### 3. 流式问答 SSE 契约（`/internal/ai/v1/rag/chat/stream`）
 流式连接返回标准的 `text/event-stream`，事件推流严格遵循下述拓扑时序：
 ```
-event: sources   data: {"type":"sources","hasContext":true,"sources":[...]}
-event: delta     data: {"type":"text","text":"Java "}
-event: delta     data: {"type":"text","text":"内存模型"}
+event: sources   data: {"type":"sources","sources":[...],"hasContext":true,"contextTruncated":false}
+event: delta     data: {"type":"delta","text":"Java "}
+event: delta     data: {"type":"delta","text":"内存模型"}
 ...
-event: done      data: {"type":"answer","hasAnswer":true,"answer":"..."}
+event: done      data: {"type":"done","answer":"...","hasAnswer":true}
 (异常分支)
 event: error     data: {"type":"error","code":50202,"message":"..."}
 ```
+> `done` 与 `error` **只会来一个**；收到 `error` 就别再等 `done`，否则前端会一直转圈。
 
-### 3. 局部更新的 `null` 语义与「显式清空」
+### 4. 局部更新的 `null` 语义与「显式清空」
 所有 `*UpdateDTO`（如 `JobUpdateDTO`、`JobCrmUpdateDTO`）都是**「传了才改」**：字段为 `null` 只表示「保持原值」，不表示「清空」。
 由此带来一条必须遵守的约定：
 
