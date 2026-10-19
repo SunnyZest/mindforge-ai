@@ -25,6 +25,19 @@ public class UserInfoVO {
     @Schema(description = "昵称")
     private String nickname;
 
+    /**
+     * 头像地址。
+     * <p>
+     * ⚠️ 是<b>后端路径</b> {@code /api/app/avatars/{fileId}}，前端直接塞进 {@code <img src>} ——
+     * 这个读取接口是公开的（img 带不上 Authorization 头），每次请求 302 跳到现签的 OSS URL。
+     * 没设置过头像时为 {@code null}。
+     * <p>
+     * 加在这里是为了让<b>登录 / 刷新页面</b>就能拿到头像：顶栏只需要 {@code /app/auth/me}，
+     * 不必再单独请求一次个人资料接口。
+     */
+    @Schema(description = "头像地址（后端路径，未设置为 null）")
+    private String avatarUrl;
+
     @Schema(description = "角色 code 列表")
     private List<String> roles;
 
@@ -36,6 +49,7 @@ public class UserInfoVO {
         vo.setId(String.valueOf(user.getId()));
         vo.setUsername(user.getUsername());
         vo.setNickname(user.getNickname());
+        vo.setAvatarUrl(user.getAvatarUrl());
         vo.setRoles(roles);
         vo.setPermissions(permissions);
         return vo;

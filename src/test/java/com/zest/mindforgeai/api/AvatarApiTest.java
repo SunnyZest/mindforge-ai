@@ -126,6 +126,76 @@ class AvatarApiTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("★★ 换头像会把旧头像标记删除，旧 URL 立刻 404（否则旧图谁都还能看）")
+    void replacingAvatarSoftDeletesOldFile() throws IOException {
+        String token = loginAsUser();
+
+        String first = uploadAvatar(token, "一.png", FAKE_PNG).assertSuccess().str("avatarUrl");
+        long firstFileId = Long.parseLong(first.substring("/api/app/avatars/".length()));
+
+        String second = uploadAvatar(token, "二.png", "another-png".getBytes(StandardCharsets.UTF_8))
+                .assertSuccess().str("avatarUrl");
+        long secondFileId = Long.parseLong(second.substring("/api/app/avatars/".length()));
+
+        // 一条 SQL 断完，顺便避开 queryForMap 读 tinyint 的类型歧义
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_file WHERE id = ? AND deleted = 1 AND deleted_at IS NOT NULL",
+                Integer.class, firstFileId))
+                .as("换头像就是为了不让别人再看旧图，旧记录必须变成 deleted=1；"
+                        + "★ 而且 deleted_at 也得写 —— 不写的话 FilePurgeTask 永远认为它没过期，"
+                        + "OSS 对象永远清不掉")
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT deleted FROM sys_file WHERE id = ?", Integer.class, secondFileId))
+                .as("新的这个不能被误伤")
+                .isZero();
+
+        assertThat(rawGet(first).getResponseCode())
+                .as("旧 URL 必须读不到了 —— 公开读接口只认 deleted=0")
+                .isEqualTo(404);
+        assertThat(rawGet(second).getResponseCode()).isEqualTo(302);
+    }
+
+    @Test
+    @DisplayName("资料接口原样再提交同一个头像 URL：不能把正在用的文件删掉（否则头像当场 404）")
+    void resubmittingSameAvatarUrlKeepsFile() throws IOException {
+        String token = loginAsUser();
+        String avatarUrl = uploadAvatar(token, "头像.png", FAKE_PNG).assertSuccess().str("avatarUrl");
+        long fileId = Long.parseLong(avatarUrl.substring("/api/app/avatars/".length()));
+
+        // 前端点一次「保存」但头像没动 —— 值相同，属于空操作
+        put("/app/user/profile", token, Map.of("avatarUrl", avatarUrl)).assertSuccess();
+
+        assertThat(jdbc.queryForObject(
+                "SELECT deleted FROM sys_file WHERE id = ?", Integer.class, fileId)).isZero();
+        assertThat(rawGet(avatarUrl).getResponseCode()).isEqualTo(302);
+    }
+
+    @Test
+    @DisplayName("★ /app/auth/me 带 avatarUrl —— 顶栏靠它显示头像，不必再请求一次资料接口")
+    void meCarriesAvatarUrl() {
+        String token = loginAsUser();
+        String avatarUrl = uploadAvatar(token, "头像.png", FAKE_PNG).assertSuccess().str("avatarUrl");
+
+        var me = get("/app/auth/me", token).assertSuccess().assertCamelCase().data();
+        assertThat(me.path("avatarUrl").asText()).isEqualTo(avatarUrl);
+
+        // 登录接口返回的 user 是同一个 VO —— 也必须有
+        var loginUser = loginRaw("/app/auth/login", USER_NAME, TEST_PASSWORD)
+                .assertSuccess().data().path("user");
+        assertThat(loginUser.path("avatarUrl").asText()).isEqualTo(avatarUrl);
+    }
+
+    @Test
+    @DisplayName("没设置过头像时 avatarUrl 是 null（不是空串 —— 空串会让 <img> 去请求当前页）")
+    void noAvatarMeansNull() {
+        jdbc.update("UPDATE `user` SET avatar_url = NULL WHERE username = ?", USER_NAME);
+
+        assertThat(get("/app/auth/me", loginAsUser()).assertSuccess().data().path("avatarUrl").isNull())
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("上传头像记了审计")
     void uploadIsAudited() {
         uploadAvatar(loginAsUser(), "头像.png", FAKE_PNG).assertSuccess();

@@ -84,6 +84,13 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
         log.info("用户修改自己的资料 userId={} 昵称={} 头像={}",
                 userId, dto.getNickname() != null, dto.getAvatarUrl() != null);
 
+        // 这个接口也允许改头像（传任意 URL）。旧头像如果还是本地上传的文件，同样得清掉，
+        // 否则它顶着一个 deleted=0 的身份继续公开可读（见 discardReplacedAvatar 的说明）。
+        // ⚠️ 值没变就不动 —— 否则「原样再提交一次」会把正在用的头像文件删掉，头像立刻 404。
+        if (dto.getAvatarUrl() != null && !dto.getAvatarUrl().equals(user.getAvatarUrl())) {
+            discardReplacedAvatar(user.getAvatarUrl(), null);
+        }
+
         // 只记「改了哪几项」，不记具体值 —— 昵称可能包含个人信息，审计表不该变成个人资料副本
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("nicknameChanged", dto.getNickname() != null);
@@ -114,6 +121,8 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
         }
 
         Long userId = SecurityUtils.getUserId();
+        // 先把旧头像记下来：下面这次 UPDATE 之后，库里的值就变成新的了
+        User before = requireCurrentUser();
         SysFile stored = fileService.upload(file, FileService.BIZ_AVATAR);
 
         // ★ 存的是【后端路径】而不是 OSS 预签名 URL ——
@@ -123,6 +132,9 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
                 .setId(userId)
                 .setAvatarUrl(avatarUrl)
                 .setUpdatedAt(LocalDateTime.now()));
+
+        // 换完才清旧的：万一上面失败，旧头像还在，用户的页面不会变成空白
+        discardReplacedAvatar(before.getAvatarUrl(), stored.getId());
 
         log.info("用户上传头像 userId={} fileId={} size={}", userId, stored.getId(), stored.getFileSize());
 
@@ -215,5 +227,53 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
             throw new BizException(ErrorCode.USER_NOT_FOUND);
         }
         return user;
+    }
+
+    /**
+     * 换头像后把<b>旧头像文件</b>标记为删除。
+     *
+     * <p><b>为什么必须清</b>：头像读取接口是公开的，{@code sys_file.id} 又可枚举。
+     * 不清的话每换一次头像就多一条 {@code deleted=0} 的记录，而且旧的
+     * {@code /api/app/avatars/{旧id}} <b>依然能被任何人读出来</b> ——
+     * 换头像本来就是为了让别人别再看到旧图，旧 URL 还活着等于白换。
+     *
+     * <p><b>为什么只做逻辑删除</b>：和文档 / 简历的删除口径保持一致 ——
+     * OSS 对象交给 {@code FilePurgeTask} 按保留期（默认 30 天）回收，误删还能救。
+     *
+     * <p>整个方法<b>幂等且不抛异常</b>：拿不到旧 fileId、旧记录已经删过、旧记录压根不是头像，
+     * 都直接返回。清理失败不该让「换头像」这个动作失败。
+     *
+     * @param oldAvatarUrl 换之前 {@code user.avatar_url} 的值，可能为 null
+     * @param newFileId    新头像的 fileId；传 null 表示调用方只想清掉旧的那个
+     */
+    private void discardReplacedAvatar(String oldAvatarUrl, Long newFileId) {
+        // 没换过头像；或者存的是外部 URL（资料接口允许传任意地址，那种没有本地文件可清）
+        if (oldAvatarUrl == null || !oldAvatarUrl.startsWith(UploadConstants.AVATAR_URL_PREFIX)) {
+            return;
+        }
+
+        Long oldFileId;
+        try {
+            oldFileId = Long.valueOf(
+                    oldAvatarUrl.substring(UploadConstants.AVATAR_URL_PREFIX.length()));
+        } catch (NumberFormatException e) {
+            // 脏数据：不是我们自己写进去的形状。宁可留下一个垃圾文件，也别凭猜删东西。
+            log.warn("旧头像 URL 解析不出 fileId，跳过清理 avatarUrl={}", oldAvatarUrl);
+            return;
+        }
+
+        if (oldFileId.equals(newFileId)) {
+            return;
+        }
+
+        // getByBiz 已经把「不存在 / 已逻辑删除 / 不是 avatars」都归成 null ——
+        // 于是重复调用天然是空操作，也顺带挡住了「拿别处的 fileId 冒充头像」
+        SysFile old = fileService.getByBiz(oldFileId, FileService.BIZ_AVATAR);
+        if (old == null) {
+            return;
+        }
+
+        fileService.softDelete(old);
+        log.info("旧头像已标记删除 oldFileId={} newFileId={}", oldFileId, newFileId);
     }
 }
