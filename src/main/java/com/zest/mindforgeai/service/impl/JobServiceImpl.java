@@ -229,6 +229,9 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
                 .set(StringUtils.hasText(dto.getApplicationStage()), Job::getApplicationStage, dto.getApplicationStage())
                 .set(dto.getSalaryOffer() != null, Job::getSalaryOffer, dto.getSalaryOffer())
                 .set(dto.getNextActionAt() != null, Job::getNextActionAt, dto.getNextActionAt())
+                // nextActionAt 有值时上面那行已经写了值，这里的清空只在它为空时才生效（同 updateCrm 的优先级）
+                .set(dto.getNextActionAt() == null && Boolean.TRUE.equals(dto.getClearNextActionAt()),
+                        Job::getNextActionAt, null)
                 .set(dto.getCrmNotes() != null, Job::getCrmNotes, dto.getCrmNotes())
                 .set(Job::getUpdatedAt, LocalDateTime.now());
 
@@ -608,8 +611,15 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     public JobKanbanCardVO updateCrm(Long id, JobCrmUpdateDTO dto) {
         Job job = requireOwned(id);
 
+        // ⚠️ 必须用 LambdaUpdateWrapper，不能 updateById：
+        //    本方法有两个字段的「合法取值」就是 NULL —— 解除简历绑定（linkedResumeId 传空串）、
+        //    清空待办提醒（clearNextActionAt = true）。updateById 默认忽略 null 字段，
+        //    用它会静默丢掉这两次修改，前端看起来「点了没反应」。
+        LambdaUpdateWrapper<Job> wrapper = new LambdaUpdateWrapper<Job>().eq(Job::getId, id);
+
         if (StringUtils.hasText(dto.getApplicationStage())) {
             job.setApplicationStage(dto.getApplicationStage().trim().toUpperCase());
+            wrapper.set(Job::getApplicationStage, job.getApplicationStage());
         }
         if (dto.getLinkedResumeId() != null) {
             if (StringUtils.hasText(dto.getLinkedResumeId())) {
@@ -629,17 +639,28 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
             } else {
                 job.setLinkedResumeId(null);
             }
+            wrapper.set(Job::getLinkedResumeId, job.getLinkedResumeId());
         }
         if (dto.getSalaryOffer() != null) {
             job.setSalaryOffer(dto.getSalaryOffer().trim());
+            wrapper.set(Job::getSalaryOffer, job.getSalaryOffer());
         }
+        // ★ 优先级：nextActionAt 有值就写值，clearNextActionAt 只在它为空时生效。
+        //   两个都传时让时间赢 —— 前端因此可以「总是带上 clearNextActionAt」，
+        //   而不会把用户刚选好的时间覆盖掉。
         if (dto.getNextActionAt() != null) {
             job.setNextActionAt(dto.getNextActionAt());
+            wrapper.set(Job::getNextActionAt, job.getNextActionAt());
+        } else if (Boolean.TRUE.equals(dto.getClearNextActionAt())) {
+            job.setNextActionAt(null);
+            wrapper.set(Job::getNextActionAt, null);
         }
         if (dto.getCrmNotes() != null) {
             job.setCrmNotes(dto.getCrmNotes().trim());
+            wrapper.set(Job::getCrmNotes, job.getCrmNotes());
         }
-        updateById(job);
+        wrapper.set(Job::getUpdatedAt, LocalDateTime.now());
+        update(wrapper);
 
         auditService.recordSuccess("JOB_CRM_UPDATE",
                 AuditConstants.RESOURCE_JOB, String.valueOf(id),

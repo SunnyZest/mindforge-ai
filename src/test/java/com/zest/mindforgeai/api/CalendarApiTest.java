@@ -309,6 +309,90 @@ class CalendarApiTest extends AbstractApiTest {
         assertThat(listRange(0, 15)).isEmpty();
     }
 
+    // --------------------------------------------- 显式清空（clearNextActionAt）
+
+    @Test
+    @DisplayName("★ clearNextActionAt 能把提醒真的写成 NULL（updateById 做不到）")
+    void clearFlagClearsReminder() {
+        LocalDateTime manual = LocalDate.now().plusDays(1).atTime(9, 0);
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("nextActionAt", manual.toString()))
+                .assertSuccess();
+        assertThat(nextActionAt()).isEqualTo(manual);
+
+        ApiResult res = put("/app/jobs/" + jobId + "/crm", token, Map.of("clearNextActionAt", true))
+                .assertSuccess();
+
+        // 两个地方都要看：库里真的变成 NULL，返回的卡片也别再带着旧值
+        assertThat(nextActionAt()).isNull();
+        assertThat(res.data().path("nextActionAt").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("★ 只改投递阶段不会顺手清掉提醒（清空必须显式声明）")
+    void partialUpdateKeepsReminder() {
+        LocalDateTime manual = LocalDate.now().plusDays(1).atTime(9, 0);
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("nextActionAt", manual.toString()))
+                .assertSuccess();
+
+        // 这条是回归守卫：去掉「显式标志」直接无条件 set(null) 的话，这里会挂
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("applicationStage", "INTERVIEW_1"))
+                .assertSuccess();
+
+        assertThat(nextActionAt()).isEqualTo(manual);
+    }
+
+    @Test
+    @DisplayName("★ clearNextActionAt = false 不清空（前端无脑带上时的安全网）")
+    void clearFlagFalseKeepsReminder() {
+        LocalDateTime manual = LocalDate.now().plusDays(1).atTime(9, 0);
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("nextActionAt", manual.toString()))
+                .assertSuccess();
+
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("clearNextActionAt", false))
+                .assertSuccess();
+
+        assertThat(nextActionAt()).isEqualTo(manual);
+    }
+
+    @Test
+    @DisplayName("★ nextActionAt 与 clearNextActionAt 同时传 → 时间赢")
+    void explicitTimeWinsOverClearFlag() {
+        LocalDateTime manual = LocalDate.now().plusDays(1).atTime(9, 0);
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("nextActionAt", manual.toString()))
+                .assertSuccess();
+
+        LocalDateTime later = manual.plusHours(2);
+        put("/app/jobs/" + jobId + "/crm", token,
+                Map.of("nextActionAt", later.toString(), "clearNextActionAt", true))
+                .assertSuccess();
+
+        assertThat(nextActionAt()).isEqualTo(later);
+    }
+
+    @Test
+    @DisplayName("★ PUT /app/jobs/{id} 也认 clearNextActionAt（两条更新路径语义一致）")
+    void jobUpdateAlsoSupportsClearFlag() {
+        LocalDateTime manual = LocalDate.now().plusDays(1).atTime(9, 0);
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("nextActionAt", manual.toString()))
+                .assertSuccess();
+
+        put("/app/jobs/" + jobId, token, Map.of("clearNextActionAt", true)).assertSuccess();
+
+        assertThat(nextActionAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("★ 只改 JD 标题不会动提醒（PUT /app/jobs/{id} 的 null 同样是「不修改」）")
+    void jobUpdateKeepsReminder() {
+        LocalDateTime manual = LocalDate.now().plusDays(1).atTime(9, 0);
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("nextActionAt", manual.toString()))
+                .assertSuccess();
+
+        put("/app/jobs/" + jobId, token, Map.of("title", "改了标题")).assertSuccess();
+
+        assertThat(nextActionAt()).isEqualTo(manual);
+    }
+
     // ------------------------------------------------------------ 辅助
 
     private Long createJob(String tk, String title, String company) {

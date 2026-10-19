@@ -61,8 +61,17 @@ public class JobUpdateDTO {
     @Size(max = 64, message = "薪资描述最长 64 个字符")
     private String salaryOffer;
 
-    @Schema(description = "下一场笔试/面试提醒时间")
+    /** 下一场笔试/面试提醒时间。传 null 表示不修改，要清空请用 {@link #clearNextActionAt} */
+    @Schema(description = "下一场笔试/面试提醒时间（有值时直接覆盖；要清空请用 clearNextActionAt）")
     private java.time.LocalDateTime nextActionAt;
+
+    /**
+     * 显式清空待办提醒，理由同 {@link JobCrmUpdateDTO#getClearNextActionAt()}。
+     * <p>
+     * 优先级：nextActionAt 有值时它赢，本标志只在 nextActionAt 为空时生效。
+     */
+    @Schema(description = "显式清空待办提醒（nextActionAt 有值时以 nextActionAt 为准）")
+    private Boolean clearNextActionAt;
 
     @Schema(description = "求职跟进备注")
     @Size(max = 1000, message = "跟进备注最长 1000 个字符")

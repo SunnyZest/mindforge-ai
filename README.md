@@ -350,6 +350,15 @@ event: done      data: {"type":"answer","hasAnswer":true,"answer":"..."}
 event: error     data: {"type":"error","code":50202,"message":"..."}
 ```
 
+### 3. 局部更新的 `null` 语义与「显式清空」
+所有 `*UpdateDTO`（如 `JobUpdateDTO`、`JobCrmUpdateDTO`）都是**「传了才改」**：字段为 `null` 只表示「保持原值」，不表示「清空」。
+由此带来一条必须遵守的约定：
+
+- **要真的把某列写成 `NULL`，必须额外给一个显式布尔标志**，因为「没传这个字段」和「显式传 `null`」经过 Jackson 反序列化后完全一样，无法区分。目前用到的是 `JobCrmUpdateDTO.clearNextActionAt` 与 `JobUpdateDTO.clearNextActionAt`。
+- 两者同时出现时 **`nextActionAt` 优先**（有值就写值，`clearNextActionAt` 只在它为空时生效）。前端因此可以「总是带上 `clearNextActionAt`」，不必自己判断有没有改过。
+- 字符串型关联 id 用**空串**表示解除绑定（如 `linkedResumeId: ""`），非空才是「不修改」。
+- 实现侧必须用 `LambdaUpdateWrapper.set(field, null)`：MyBatis-Plus 的 `updateById` 默认忽略 `null` 字段，用它这些修改会被静默丢掉。
+
 ---
 
 ## 六、 生产级避坑指南与工程规约

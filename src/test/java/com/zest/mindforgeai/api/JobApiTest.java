@@ -188,4 +188,22 @@ class JobApiTest extends AbstractApiTest {
                 .assertHttpStatus(404)
                 .assertCode(ErrorCode.JOB_NOT_FOUND.getCode());
     }
+
+    @Test
+    @DisplayName("★ CRM 里把目标简历改成空串要真的解绑（updateById 会漏掉这个 NULL）")
+    void crmCanUnbindResume() {
+        long resumeId = uploadResume(token, "张伟-简历.txt", "张伟，5 年 Java 后端经验").assertSuccess().longId();
+
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("linkedResumeId", String.valueOf(resumeId)))
+                .assertSuccess();
+        assertThat(jdbc.queryForObject(
+                "SELECT linked_resume_id FROM job WHERE id = ?", Long.class, jobId))
+                .isEqualTo(resumeId);
+
+        put("/app/jobs/" + jobId + "/crm", token, Map.of("linkedResumeId", "")).assertSuccess();
+
+        assertThat(jdbc.queryForObject(
+                "SELECT linked_resume_id FROM job WHERE id = ?", Long.class, jobId))
+                .as("空串是「解除绑定」的约定写法，不是「不修改」").isNull();
+    }
 }
