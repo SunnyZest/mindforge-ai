@@ -183,6 +183,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    public User getByEmail(String email) {
+        String normalized = normalizeEmail(email);
+        if (normalized == null) {
+            // 列可空（管理端代建可能没填），空串不该去撞唯一索引
+            return null;
+        }
+        return getOne(new LambdaQueryWrapper<User>().eq(User::getEmail, normalized));
+    }
+
+    @Override
     public List<String> listRoleCodes(Long userId) {
         return roleMapper.selectCodesByUserId(userId);
     }

@@ -45,6 +45,20 @@ public interface UserService extends IService<User> {
     /** 按用户名查询，不存在返回 null */
     User getByUsername(String username);
 
+    /**
+     * 按邮箱查询（登录用），不存在返回 null。
+     * <p>
+     * ⚠️ 三个约定都和 {@link #getByUsername} 不同，别混用：
+     * <ul>
+     *   <li>入参会 <b>trim + 转小写</b> —— 用户输 {@code Foo@Bar.com} 也能登</li>
+     *   <li>email 为 blank 直接返回 null（列本身可空，管理端代建可能没填）</li>
+     *   <li>逻辑删除的账号查不到（MP 的 {@code deleted = 0} 自动兜住）</li>
+     * </ul>
+     * 刻意<b>不</b>要求 {@code email_verified = 1}：这个字段的语义是「注册时验过码」，
+     * 不是「可用于登录」。早期账号（含 admin）该列都是 0，要求它等于把这些人拒之门外。
+     */
+    User getByEmail(String email);
+
     /** 查询用户的角色 code 列表（sys_user_role → sys_role） */
     List<String> listRoleCodes(Long userId);
 

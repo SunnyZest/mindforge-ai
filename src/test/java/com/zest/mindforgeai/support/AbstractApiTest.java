@@ -128,6 +128,7 @@ public abstract class AbstractApiTest {
         jdbc = new JdbcTemplate(dataSource);
         clearBusinessData();
         clearVerificationKeys();
+        clearLoginAttempts();
         ensureTestAccounts();
         stubFileStorage();
         stubVerificationSender();
@@ -154,6 +155,24 @@ public abstract class AbstractApiTest {
         Set<String> keys = redis.keys("mf:code:*");
         if (keys != null && !keys.isEmpty()) {
             redis.delete(keys);
+        }
+    }
+
+    /**
+     * 清掉登录 / 改密码的失败计数。
+     * <p>
+     * ⚠️ 这些计数也跨用例残留：一个「密码错」的断言就 +1，阈值只有 5。
+     * 同一台机器上短时间连跑几遍测试，就会出现「明明密码是对的却提示失败次数过多」——
+     * 排查时极容易怀疑到登录逻辑本身。
+     */
+    private void clearLoginAttempts() {
+        Set<String> keys = redis.keys("mf:login:fail:*");
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
+        Set<String> pwdKeys = redis.keys("mf:pwd:fail:*");
+        if (pwdKeys != null && !pwdKeys.isEmpty()) {
+            redis.delete(pwdKeys);
         }
     }
 

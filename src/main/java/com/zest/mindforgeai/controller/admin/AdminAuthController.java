@@ -12,6 +12,7 @@ import com.zest.mindforgeai.pojo.entity.User;
 import com.zest.mindforgeai.pojo.vo.LoginVO;
 import com.zest.mindforgeai.pojo.vo.TokenVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
+import com.zest.mindforgeai.security.LoginUser;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.LoginAttemptService;
 import com.zest.mindforgeai.service.RefreshTokenService;
@@ -127,7 +128,10 @@ public class AdminAuthController {
         //   这里补上之后，本次请求后续的逻辑（含审计取 userId）都能正常拿到当前用户。
         SecurityContextHolder.getContext().setAuthentication(auth);
 
-        User user = userService.getByUsername(auth.getName());
+        // ⚠️ 同用户端：邮箱登录时 auth.getName() 是邮箱，不能按用户名查。
+        //    管理端没有邮箱登录入口，但认证层是共用的 —— 不这样写会留下 NPE 隐患。
+        LoginUser principal = (LoginUser) auth.getPrincipal();
+        User user = userService.getById(principal.getUserId());
         List<String> roles = userService.listRoleCodes(user.getId());
 
         // 管理端入口必须校验角色，否则普通用户也能从这里拿到 token（文档 §7.3）

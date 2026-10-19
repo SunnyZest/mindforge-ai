@@ -52,17 +52,78 @@ class AuthApiTest extends AbstractApiTest {
                 .isEqualTo(wrongPwd.code());
     }
 
-    // ---------- 用户名校验（Redis key 长度无上限那个修复的回归保护）----------
+    // ---------- 邮箱登录（2026-10-19）----------
 
-    @Test
-    @DisplayName("用户名超长（33 字符）：40001，而不是走进认证")
-    void usernameOver32IsRejected() {
-        String tooLong = "x".repeat(33);
-        loginRaw(APP_LOGIN, tooLong, TEST_PASSWORD).assertCode(ErrorCode.PARAM_INVALID.getCode());
+    /** 库里 t_user 的邮箱 —— 不硬编码，避免测试库重建后 email 变了 */
+    private String userEmail() {
+        return jdbc.queryForObject(
+                "SELECT email FROM `user` WHERE username = ?", String.class, USER_NAME);
     }
 
     @Test
-    @DisplayName("★ 用户名 2000 字符：40001 —— 防止拿超长用户名撑大 Redis key")
+    @DisplayName("邮箱登录：成功，拿到的 token 能访问受保护接口")
+    void loginWithEmailSucceeds() {
+        ApiResult result = loginRaw(APP_LOGIN, userEmail(), TEST_PASSWORD);
+
+        result.assertSuccess().assertCamelCase();
+        get("/app/user/profile", result.str("accessToken")).assertSuccess();
+    }
+
+    @Test
+    @DisplayName("邮箱登录：大小写与前后空格不影响")
+    void loginWithEmailIgnoresCaseAndSpaces() {
+        // 邮箱归一化在 service 层（trim + 小写），不是靠 MySQL 的排序规则碰运气
+        String messy = "  " + userEmail().toUpperCase() + "  ";
+        loginRaw(APP_LOGIN, messy, TEST_PASSWORD).assertSuccess();
+    }
+
+    @Test
+    @DisplayName("邮箱登录：密码错 → 40101（与用户名登录同一个码）")
+    void loginWithEmailWrongPasswordIsRejected() {
+        loginRaw(APP_LOGIN, userEmail(), "definitely-wrong")
+                .assertCode(ErrorCode.UNAUTHORIZED.getCode());
+    }
+
+    @Test
+    @DisplayName("邮箱不存在：和用户名不存在返回同一个码，不泄漏注册状态")
+    void unknownEmailLooksTheSameAsUnknownUser() {
+        ApiResult unknownEmail = loginRaw(APP_LOGIN, "nobody-at-all@test.local", TEST_PASSWORD);
+        ApiResult unknownUser = loginRaw(APP_LOGIN, "no-such-user-at-all", TEST_PASSWORD);
+
+        unknownEmail.assertCode(ErrorCode.UNAUTHORIZED.getCode());
+        assertThat(unknownEmail.code())
+                .as("两种「不存在」必须给同一个业务码，否则可以拿来枚举邮箱")
+                .isEqualTo(unknownUser.code());
+    }
+
+    @Test
+    @DisplayName("★ 用户名优先：含 @ 的用户名不会登进别人的邮箱账号")
+    void usernameTakesPrecedenceOverEmail() {
+        // 造一个用户名恰好等于 t_user 邮箱的账号，密码设成不同的
+        String shadow = userEmail();
+        Long shadowId = createAccount(shadow);
+        jdbc.update("UPDATE `user` SET password_hash = ? WHERE id = ?",
+                passwordEncoder.encode("shadow-pass"), shadowId);
+
+        // 用「用户名账号的密码」能进 —— 说明命中的是 username 那一列
+        loginRaw(APP_LOGIN, shadow, "shadow-pass").assertSuccess();
+
+        // 用 t_user 的密码反而进不去；若哪天改成「邮箱优先」，这里会变成成功
+        loginRaw(APP_LOGIN, shadow, TEST_PASSWORD)
+                .assertCode(ErrorCode.UNAUTHORIZED.getCode());
+    }
+
+    // ---------- 登录标识长度（Redis key 无上限那个修复的回归保护）----------
+
+    @Test
+    @DisplayName("登录标识超长（65 字符）：40001，而不是走进认证")
+    void identifierOver64IsRejected() {
+        // 上限 2026-10-19 从 32 放宽到 64（要能装下邮箱），但仍然必须有上限
+        loginRaw(APP_LOGIN, "x".repeat(65), TEST_PASSWORD).assertCode(ErrorCode.PARAM_INVALID.getCode());
+    }
+
+    @Test
+    @DisplayName("★ 登录标识 2000 字符：40001 —— 防止拿超长标识撑大 Redis key")
     void extremelyLongUsernameIsRejected() {
         // 修之前这里会一路走到认证、把 2000 字符拼进 mf:login:fail:u:{username}，
         // 造出 2016 字节的 key、15 分钟 TTL。见 LoginAttemptServiceImpl 的注释。
@@ -71,10 +132,10 @@ class AuthApiTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("用户名正好 32 字符：通过校验（走到认证，得到 40101）")
-    void usernameExactly32PassesValidation() {
-        // 边界值：32 是 user.username varchar(32) 的上限，不能把合法长度也挡掉
-        loginRaw(APP_LOGIN, "x".repeat(32), TEST_PASSWORD)
+    @DisplayName("登录标识正好 64 字符：通过校验（走到认证，得到 40101）")
+    void identifierExactly64PassesValidation() {
+        // 边界值：64 是 user.email varchar(64) 的上限
+        loginRaw(APP_LOGIN, "x".repeat(64), TEST_PASSWORD)
                 .assertCode(ErrorCode.UNAUTHORIZED.getCode());
     }
 

@@ -44,10 +44,30 @@ public class CustomUserDetailsService implements UserDetailsService {
         this.userService = userService;
     }
 
-    /** 登录时按用户名加载（DaoAuthenticationProvider 走这个方法） */
+    /**
+     * 登录时按标识加载（DaoAuthenticationProvider 走这个方法）。
+     * <p>
+     * ★ <b>支持「用户名或邮箱」两种登录标识</b>，规则只有两条：
+     * <ol>
+     *   <li>先按用户名查 —— <b>用户名优先</b>。所以即使某个人的用户名长得像邮箱，
+     *       也不会被另一账号的 email 抢走</li>
+     *   <li>用户名查不到、且输入里含 {@code @} 时，再按邮箱查</li>
+     * </ol>
+     * <p>
+     * ⚠️ 为什么不做成两个接口 / 加一个 {@code loginType}：
+     * 前端切换「用户名 / 邮箱」只是输入校验和文案的差别，后端自动识别能省掉
+     * 「把 loginType 塞进 principal 或 ThreadLocal」那一层 —— 那种写法要么污染
+     * {@code auth.getName()}，要么引入 ThreadLocal 清理负担，收益不值。
+     * <p>
+     * ⚠️ 管理端登录共用这个方法，等于管理员也多了一个「邮箱别名」。
+     * 这不额外放权（角色仍从库里读），只是同一把密码多一种输入方式。
+     */
     @Override
     public UserDetails loadUserByUsername(String username) {
         User user = userService.getByUsername(username);
+        if (user == null && username != null && username.indexOf('@') > 0) {
+            user = userService.getByEmail(username);
+        }
         if (user == null) {
             throw new UsernameNotFoundException("用户不存在: " + username);
         }

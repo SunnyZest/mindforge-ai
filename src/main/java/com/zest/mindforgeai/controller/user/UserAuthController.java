@@ -14,6 +14,7 @@ import com.zest.mindforgeai.pojo.entity.User;
 import com.zest.mindforgeai.pojo.vo.LoginVO;
 import com.zest.mindforgeai.pojo.vo.TokenVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
+import com.zest.mindforgeai.security.LoginUser;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.LoginAttemptService;
 import com.zest.mindforgeai.service.RefreshTokenService;
@@ -148,7 +149,7 @@ public class UserAuthController {
             // 但失败值得留痕，用于发现撞库 / 爆破
             auditService.recordFailure(AuditConstants.ACTION_USER_LOGIN,
                     AuditConstants.RESOURCE_USER, null,
-                    Map.of("attemptedUsername", dto.getUsername(),
+                    Map.of("attemptedIdentifier", dto.getUsername(),
                            "clientIp", clientIp,
                            "reason", e.getClass().getSimpleName()));
             throw e;    // 继续抛出，交给 GlobalExceptionHandler 转成 40101
@@ -157,9 +158,18 @@ public class UserAuthController {
         // 登录成功，清掉该账号的失败计数
         loginAttemptService.recordSuccess(dto.getUsername(), clientIp);
 
-        User user = userService.getByUsername(auth.getName());
+        // ⚠️ 不能再用 getByUsername(auth.getName())：邮箱登录时 auth.getName() 是邮箱，
+        //    按用户名查会返回 null。改用认证结果里的 userId —— 顺带也不受「用户名变更」影响。
+        LoginUser principal = (LoginUser) auth.getPrincipal();
+        User user = userService.getById(principal.getUserId());
         List<String> roles = userService.listRoleCodes(user.getId());
         List<String> permissions = userService.listPermissionCodes(user.getId());
+
+        // ★ 同一个账号有两种标识（用户名 / 邮箱），失败计数也是分开记的 ——
+        //   用邮箱登成功时要把用户名那份也清掉，否则会出现「邮箱能登、用户名还被锁着」。
+        if (user.getEmail() != null) {
+            loginAttemptService.recordSuccess(user.getEmail(), clientIp);
+        }
 
         log.info("用户登录成功 userId={} username={} roles={} permissions={}",
                 user.getId(), user.getUsername(), roles, permissions.size());
