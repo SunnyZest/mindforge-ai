@@ -11,11 +11,21 @@
     <property name="LOG_PATTERN"
               value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] [%thread] %logger{36} - %msg%n"/>
 
-    <!-- 控制台 -->
+    <!--
+      控制台。
+      charset 不能写死 UTF-8：JDK 18 起 file.encoding 固定是 UTF-8（JEP 400），
+      但 Windows cmd 的代码页默认还是 936（GBK），JVM 把这件事如实报在
+      stdout.encoding 里。Logback 若按 UTF-8 编码再往控制台写，cmd 会按 GBK
+      解码这些字节，中文就成了乱码 —— 配置没错、代码也没错，纯粹是两端编码不一致。
+      跟随 stdout.encoding 就自适应了：cmd 下是 GBK，chcp 65001 之后是 UTF-8，
+      Linux / IDEA 控制台是 UTF-8。JDK 19 以下没有该属性则退回 UTF-8（行为同从前）。
+      要强制指定：-DMF_CONSOLE_CHARSET=GBK 或同名环境变量。
+      文件 appender 不受此影响，始终 UTF-8。
+    -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>${LOG_PATTERN}</pattern>
-            <charset>UTF-8</charset>
+            <charset>${MF_CONSOLE_CHARSET:-${stdout.encoding:-UTF-8}}</charset>
         </encoder>
     </appender>
 
