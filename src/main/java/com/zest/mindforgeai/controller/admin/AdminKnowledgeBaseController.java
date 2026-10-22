@@ -74,14 +74,14 @@ public class AdminKnowledgeBaseController {
 
     @Operation(summary = "创建官方/管理员知识库")
     @PostMapping
-    @PreAuthorize("hasAuthority('admin:knowledge:list') or hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('admin:knowledge:create')")
     public Result<AdminKnowledgeBaseVO> create(@Valid @RequestBody KnowledgeBaseCreateDTO dto) {
         return Result.success(adminKnowledgeService.createKnowledgeBase(dto));
     }
 
     @Operation(summary = "修改知识库")
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('admin:knowledge:list') or hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('admin:knowledge:update')")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody KnowledgeBaseUpdateDTO dto) {
         adminKnowledgeService.updateKnowledgeBase(id, dto);
         return Result.success();

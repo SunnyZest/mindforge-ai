@@ -75,7 +75,7 @@ public class AdminDocumentController {
 
     @Operation(summary = "管理端上传文档到知识库")
     @PostMapping("/knowledge-bases/{knowledgeBaseId}/documents/upload")
-    @PreAuthorize("hasAuthority('admin:document:list') or hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('admin:document:upload')")
     public Result<AdminDocumentVO> upload(@PathVariable Long knowledgeBaseId,
                                           @RequestPart("file") MultipartFile file,
                                           @RequestParam(required = false) String description) {
@@ -84,7 +84,7 @@ public class AdminDocumentController {
 
     @Operation(summary = "管理端通过网页 URL 导入文档")
     @PostMapping("/knowledge-bases/{knowledgeBaseId}/documents/import-url")
-    @PreAuthorize("hasAuthority('admin:document:list') or hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('admin:document:upload')")
     public Result<AdminDocumentVO> importUrl(@PathVariable Long knowledgeBaseId,
                                              @Valid @RequestBody ImportUrlDTO dto) {
         return Result.success(adminDocumentService.importUrl(knowledgeBaseId, dto.getUrl()));
