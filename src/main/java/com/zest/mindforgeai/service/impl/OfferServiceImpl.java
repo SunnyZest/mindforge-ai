@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.RecycleResourceType;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.mapper.JobOfferMapper;
@@ -22,6 +23,7 @@ import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.JobService;
 import com.zest.mindforgeai.service.OfferService;
+import com.zest.mindforgeai.service.RecycleBinService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -82,10 +84,13 @@ public class OfferServiceImpl extends ServiceImpl<JobOfferMapper, JobOffer> impl
 
     private final AuditService auditService;
     private final JobService jobService;
+    private final RecycleBinService recycleBinService;
 
-    public OfferServiceImpl(AuditService auditService, JobService jobService) {
+    public OfferServiceImpl(AuditService auditService, JobService jobService,
+                            RecycleBinService recycleBinService) {
         this.auditService = auditService;
         this.jobService = jobService;
+        this.recycleBinService = recycleBinService;
     }
 
     @Override
@@ -206,6 +211,11 @@ public class OfferServiceImpl extends ServiceImpl<JobOfferMapper, JobOffer> impl
     public void delete(Long id) {
         JobOffer offer = requireOwned(id);
         removeById(id);
+
+        // 进回收站：Offer 是纯逻辑删除（没有任何关联表要物理清理），
+        // 恢复时把 deleted 改回 0 就完整了
+        recycleBinService.put(RecycleResourceType.OFFER, id,
+                SecurityUtils.getUserId(), offer.getCompanyName());
 
         auditService.recordSuccess(AuditConstants.ACTION_OFFER_DELETE,
                 AuditConstants.RESOURCE_OFFER, String.valueOf(id),

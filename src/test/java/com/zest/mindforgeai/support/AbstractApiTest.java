@@ -87,6 +87,8 @@ public abstract class AbstractApiTest {
             "resume_skill", "resume_job_analysis", "salary_estimate", "resume",
             "job_event", "job_skill", "job", "job_offer",
             "sys_file", "sys_audit_log", "sys_alert", "sys_refresh_token", "ai_usage_record",
+            // 回收站记录没有 deleted 列（恢复 / 彻底删除后直接物理删），只能物理清
+            "recycle_bin",
             // sys_ai_model / sys_prompt 都没有 deleted 列，只能物理删
             "sys_ai_model", "sys_prompt"
     );

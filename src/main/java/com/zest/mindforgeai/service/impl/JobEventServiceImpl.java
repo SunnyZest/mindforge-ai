@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.RecycleResourceType;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import com.zest.mindforgeai.mapper.JobEventMapper;
@@ -15,6 +16,7 @@ import com.zest.mindforgeai.pojo.entity.JobEvent;
 import com.zest.mindforgeai.pojo.vo.JobEventVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.JobEventService;
+import com.zest.mindforgeai.service.RecycleBinService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,10 +50,13 @@ public class JobEventServiceImpl extends ServiceImpl<JobEventMapper, JobEvent> i
 
     private final JobMapper jobMapper;
     private final AuditService auditService;
+    private final RecycleBinService recycleBinService;
 
-    public JobEventServiceImpl(JobMapper jobMapper, AuditService auditService) {
+    public JobEventServiceImpl(JobMapper jobMapper, AuditService auditService,
+                               RecycleBinService recycleBinService) {
         this.jobMapper = jobMapper;
         this.auditService = auditService;
+        this.recycleBinService = recycleBinService;
     }
 
     @Override
@@ -144,6 +149,12 @@ public class JobEventServiceImpl extends ServiceImpl<JobEventMapper, JobEvent> i
         JobEvent event = requireOwned(id);
         LocalDateTime removedAt = event.getEventAt();
         removeById(id);
+
+        // 进回收站：日程是纯逻辑删除，恢复时把 deleted 改回 0 就完整了。
+        // ⚠️ 但恢复不会把 job.next_action_at 写回来 —— 那是派生值，由后续的日程变更
+        //    重新计算（和「删日程只在提醒正好指向它时才清空」是同一套逻辑）。
+        recycleBinService.put(RecycleResourceType.JOB_EVENT, id,
+                SecurityUtils.getUserId(), event.getTitle());
 
         syncNextActionAt(event.getJobId(), removedAt);
 

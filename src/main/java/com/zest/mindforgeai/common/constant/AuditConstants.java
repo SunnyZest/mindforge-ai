@@ -189,6 +189,10 @@ public final class AuditConstants {
     /** 薪酬估算：只记真正调了模型的那次（命中缓存不记，否则一条参数点几次就是几条噪音） */
     public static final String ACTION_SALARY_ESTIMATE = "SALARY_ESTIMATE";
 
+    /** 回收站：恢复 / 彻底删除。删除本身仍记各资源的 xxx_DELETE，这里不重复记 */
+    public static final String ACTION_RECYCLE_RESTORE = "RECYCLE_RESTORE";
+    public static final String ACTION_RECYCLE_PURGE = "RECYCLE_PURGE";
+
     /* ---------- 资源类型 ---------- */
 
     public static final String RESOURCE_USER = "USER";
@@ -210,6 +214,9 @@ public final class AuditConstants {
     public static final String RESOURCE_ALERT = "ALERT";
     public static final String RESOURCE_OFFER = "OFFER";
     public static final String RESOURCE_JOB_EVENT = "JOB_EVENT";
+
+    /** 回收站 —— resourceId 存的是<b>原资源</b>的 id，不是回收站记录自己的 id */
+    public static final String RESOURCE_RECYCLE = "RECYCLE";
     public static final String RESOURCE_SALARY_ESTIMATE = "SALARY_ESTIMATE";
 
     /* ---------- 高危操作 ---------- */

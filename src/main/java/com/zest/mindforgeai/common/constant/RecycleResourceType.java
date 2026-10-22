@@ -1,0 +1,64 @@
+package com.zest.mindforgeai.common.constant;
+
+import lombok.Getter;
+
+/**
+ * 回收站支持的资源类型。
+ *
+ * <p>★ <b>表名在这里写死，绝不拼请求参数</b>：恢复与彻底删除必须用原生 SQL
+ * 绕过 MyBatis-Plus 的逻辑删除拦截（MP 会给 {@code updateById} 自动补
+ * {@code deleted = 0}，永远改不到一条 {@code deleted = 1} 的记录），
+ * 而表名一旦来自用户输入就是 SQL 注入点。白名单是这里唯一可信的来源。
+ *
+ * <p>★ <b>只放「删除时没有任何物理清理」的类型</b>：删的时候只把 {@code deleted} 置 1，
+ * 恢复就是改回 0，完整且零副作用。
+ *
+ * <p>⚠️ 一开始以为「职位 / 面试 / 对话」也属于这一类，把五个 delete 方法读完才发现不是：
+ * <ul>
+ *   <li>职位：{@code job_skill} 与 {@code resume_job_analysis} 是<b>物理删</b>；</li>
+ *   <li>面试：{@code interview_question} 与 {@code interview_report} 是<b>物理删</b>；</li>
+ *   <li>对话：{@code chat_message} 与 {@code chat_source} 是<b>物理删</b> —— 恢复出来是个空壳。</li>
+ * </ul>
+ * 这三种要么补 payload 快照（删除时把将被物理删的关联数据序列化进 recycle_bin，
+ * 恢复时反序列化写回），要么恢复后重新解析 / 重新生成，属于下一期。
+ * 简历与文档 / 知识库同理（技能、向量 chunk 都会被清）。
+ *
+ * @author crx
+ * @since 2026-10-22
+ */
+@Getter
+public enum RecycleResourceType {
+
+    OFFER("job_offer", "Offer"),
+    JOB_EVENT("job_event", "面试日程");
+
+    /** 原表名 —— 必须是本枚举里写死的字面量 */
+    private final String table;
+
+    /** 中文名，给前端列表展示 */
+    private final String label;
+
+    RecycleResourceType(String table, String label) {
+        this.table = table;
+        this.label = label;
+    }
+
+    /**
+     * 按名字查类型，找不到返回 {@code null}。
+     *
+     * <p>刻意不抛异常：这是工具方法，报错文案与错误码属于调用方的业务判断
+     * （比如列表接口遇到不认识的类型可以直接忽略筛选条件，而不是 500）。
+     */
+    public static RecycleResourceType of(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        String normalized = name.trim().toUpperCase();
+        for (RecycleResourceType type : values()) {
+            if (type.name().equals(normalized)) {
+                return type;
+            }
+        }
+        return null;
+    }
+}
