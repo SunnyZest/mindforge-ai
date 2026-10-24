@@ -35,7 +35,10 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 管理端文档管理实现
@@ -316,7 +319,12 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void retry(Long id) {
-        Document doc = requireExists(id);
+        retry(requireExists(id));
+    }
+
+    /** 批量场景用的重载：{@code doc} 已由调用方批量查出，不再查库（循环里 selectById 就是 N+1） */
+    private void retry(Document doc) {
+        Long id = doc.getId();
 
         // 只有处理失败的才能重试。
         // 允许重试「处理中」的文档会让 AI 服务对同一份文档跑两遍，状态互相覆盖。
@@ -357,7 +365,12 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
-        Document doc = requireExists(id);
+        delete(requireExists(id));
+    }
+
+    /** 批量场景用的重载：{@code doc} 已由调用方批量查出，不再查库 */
+    private void delete(Document doc) {
+        Long id = doc.getId();
 
         // ① 逻辑删除 document（MP 自动设 deleted = 1）
         documentMapper.deleteById(id);
@@ -393,19 +406,21 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
         if (ids == null || ids.isEmpty()) {
             return 0;
         }
+        // ★ 一次查出全部文档，循环里只做内存判断 —— 逐个 selectById 就是 N+1
+        Map<Long, Document> docs = mapByIds(ids);
         int count = 0;
         for (Long id : ids) {
             if (id == null) {
                 continue;
             }
-            Document doc = documentMapper.selectById(id);
+            Document doc = docs.get(id);
             if (doc == null) {
                 continue;
             }
             if (DocumentStatusUtils.FAILED.equals(doc.getParseStatus())
                     || DocumentStatusUtils.FAILED.equals(doc.getChunkStatus())
                     || DocumentStatusUtils.FAILED.equals(doc.getVectorStatus())) {
-                retry(id);
+                retry(doc);
                 count++;
             }
         }
@@ -418,14 +433,15 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
         if (ids == null || ids.isEmpty()) {
             return 0;
         }
+        Map<Long, Document> docs = mapByIds(ids);
         int count = 0;
         for (Long id : ids) {
             if (id == null) {
                 continue;
             }
-            Document doc = documentMapper.selectById(id);
+            Document doc = docs.get(id);
             if (doc != null) {
-                delete(id);
+                delete(doc);
                 count++;
             }
         }
@@ -440,6 +456,21 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
             throw new BizException(ErrorCode.DOCUMENT_NOT_FOUND);
         }
         return doc;
+    }
+
+    /**
+     * 按 id 批量查文档并转 Map —— 批量操作的公共前置。
+     *
+     * <p>存在的才进 Map，调用方 {@code docs.get(id) == null} 就代表「这个 id 不存在」，
+     * 不需要再查一次确认。过滤 null 与去重，避免 {@code IN ()} 语法错误和重复查询。
+     */
+    private Map<Long, Document> mapByIds(List<Long> ids) {
+        List<Long> validIds = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (validIds.isEmpty()) {
+            return Map.of();
+        }
+        return documentMapper.selectBatchIds(validIds).stream()
+                .collect(Collectors.toMap(Document::getId, Function.identity(), (a, b) -> a));
     }
 
     private void validateStatus(String fieldLabel, String value, Set<String> allowed) {

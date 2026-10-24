@@ -59,9 +59,12 @@ public class KnowledgeBaseCascadeServiceImpl implements KnowledgeBaseCascadeServ
         //    安全性：RAG 检索会 JOIN document 并过滤 deleted = 0，不会召回已删文档的内容。
         int docs = documentMapper.delete(new LambdaQueryWrapper<Document>()
                 .eq(Document::getKnowledgeBaseId, knowledgeBaseId));
-        for (Long fileId : fileIds) {
-            SysFile sysFile = fileService.getById(fileId);
-            if (sysFile != null) {
+        // ★ 一次查出所有文件，循环里只做内存判断。
+        //   逐个 getById 就是 N+1：一个知识库下有 N 篇文档 = N 次查询。
+        //   ⚠️ 空列表必须跳过：MP 的 selectBatchIds([]) 会拼出 IN ()，
+        //      MySQL 直接语法错误（新建的知识库还没有文档时就会踩到）。
+        if (!fileIds.isEmpty()) {
+            for (SysFile sysFile : fileService.listByIds(fileIds)) {
                 fileService.softDelete(sysFile);
             }
         }

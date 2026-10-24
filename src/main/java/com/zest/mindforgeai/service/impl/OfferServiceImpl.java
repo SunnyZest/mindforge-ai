@@ -41,6 +41,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Offer 对比实现。
@@ -251,11 +253,7 @@ public class OfferServiceImpl extends ServiceImpl<JobOfferMapper, JobOffer> impl
                     "一次可以对比 " + MIN_COMPARE + "~" + MAX_COMPARE + " 个 Offer");
         }
 
-        // 逐个校验归属 —— 不是自己的直接 404（不区分「不存在」和「不是你的」）
-        List<JobOffer> offers = new ArrayList<>(ids.size());
-        for (Long id : ids) {
-            offers.add(requireOwned(id));
-        }
+        List<JobOffer> offers = requireOwnedAll(ids);
 
         Map<String, Double> weights = normalizeWeights(dto);
 
@@ -452,6 +450,29 @@ public class OfferServiceImpl extends ServiceImpl<JobOfferMapper, JobOffer> impl
             throw new BizException(ErrorCode.OFFER_NOT_FOUND);
         }
         return offer;
+    }
+
+    /**
+     * 批量校验归属，并按入参顺序返回。
+     *
+     * <p>★ 一次 {@code listByIds} 查完，再在内存里逐个校验 —— 循环里逐个
+     * {@code getById} 就是 N+1。MAX_COMPARE 虽小，但这是同一个毛病。
+     * 顺序按入参 {@code ids} 走，调用方算分的结果才稳定。
+     */
+    private List<JobOffer> requireOwnedAll(List<Long> ids) {
+        Long self = SecurityUtils.getUserId();
+        Map<Long, JobOffer> byId = listByIds(ids).stream()
+                .collect(Collectors.toMap(JobOffer::getId, Function.identity(), (a, b) -> a));
+        List<JobOffer> result = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            JobOffer offer = byId.get(id);
+            // 不是自己的直接 404（不区分「不存在」和「不是你的」）
+            if (offer == null || !self.equals(offer.getUserId())) {
+                throw new BizException(ErrorCode.OFFER_NOT_FOUND);
+            }
+            result.add(offer);
+        }
+        return result;
     }
 
     /** 解析并去重 id 列表（前端传字符串，避免 JS 精度丢失） */

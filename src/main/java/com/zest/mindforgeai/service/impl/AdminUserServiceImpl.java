@@ -36,6 +36,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -189,10 +190,18 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateStatus(Long userId, Integer status) {
-        User user = getById(userId);
-        if (user == null) {
-            throw new BizException(ErrorCode.USER_NOT_FOUND);
-        }
+        updateStatus(requireUser(userId), status);
+    }
+
+    /**
+     * 批量场景用的重载：{@code user} 由调用方一次 {@code listByIds} 查出，这里不再查库。
+     *
+     * <p>★ 为什么要有它：批量方法如果在循环里 {@code getById}，就是典型 N+1 ——
+     * 批量 50 个用户 = 50 次查询，而一次 {@code listByIds} 就够。
+     * 「先批量查、再逐个处理」是消除循环查库最直接的办法。
+     */
+    private void updateStatus(User user, Integer status) {
+        Long userId = user.getId();
 
         // 不允许禁用自己：否则管理员可能把自己锁在外面，再也登不进来
         if (status != null && status != STATUS_ENABLED
@@ -221,10 +230,12 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void assignRoles(Long userId, List<Long> roleIds) {
-        User user = getById(userId);
-        if (user == null) {
-            throw new BizException(ErrorCode.USER_NOT_FOUND);
-        }
+        assignRoles(requireUser(userId), roleIds);
+    }
+
+    /** 批量场景用的重载：{@code user} 已由调用方批量查出，不再查库（见 {@link #updateStatus(User, Integer)}） */
+    private void assignRoles(User user, List<Long> roleIds) {
+        Long userId = user.getId();
 
         List<Long> targetRoleIds = roleIds == null ? List.of()
                 : roleIds.stream().filter(Objects::nonNull).distinct().toList();
@@ -335,10 +346,12 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteUser(Long userId) {
-        User user = getById(userId);
-        if (user == null) {
-            throw new BizException(ErrorCode.USER_NOT_FOUND);
-        }
+        deleteUser(requireUser(userId));
+    }
+
+    /** 批量场景用的重载：{@code user} 已由调用方批量查出，不再查库（见 {@link #updateStatus(User, Integer)}） */
+    private void deleteUser(User user) {
+        Long userId = user.getId();
 
         // 不能删自己：删完 token 里那个 userId 就查不到人了，等于把自己锁在外面
         if (userId.equals(SecurityUtils.getUserId())) {
@@ -377,6 +390,9 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             return 0;
         }
         int count = 0;
+        // ★ 一次查出全部目标用户，循环里只做内存判断。
+        //   逐个 getById 就是 N+1：批量 50 个用户 = 50 次查询。
+        Map<Long, User> users = mapByIds(ids);
         for (Long id : ids) {
             if (id == null) {
                 continue;
@@ -384,11 +400,11 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             if (status != null && status == 0 && id.equals(SecurityUtils.getUserId())) {
                 continue;
             }
-            User user = getById(id);
+            User user = users.get(id);
             if (user == null) {
                 continue;
             }
-            updateStatus(id, status);
+            updateStatus(user, status);
             count++;
         }
         return count;
@@ -401,15 +417,16 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             return 0;
         }
         int count = 0;
+        Map<Long, User> users = mapByIds(ids);
         for (Long id : ids) {
             if (id == null) {
                 continue;
             }
-            User user = getById(id);
+            User user = users.get(id);
             if (user == null) {
                 continue;
             }
-            assignRoles(id, roleIds);
+            assignRoles(user, roleIds);
             count++;
         }
         return count;
@@ -422,6 +439,7 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             return 0;
         }
         int count = 0;
+        Map<Long, User> users = mapByIds(ids);
         for (Long id : ids) {
             if (id == null) {
                 continue;
@@ -429,17 +447,41 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
             if (id.equals(SecurityUtils.getUserId())) {
                 continue;
             }
-            User user = getById(id);
+            User user = users.get(id);
             if (user == null) {
                 continue;
             }
-            deleteUser(id);
+            deleteUser(user);
             count++;
         }
         return count;
     }
 
     /* ---------- 内部工具 ---------- */
+
+    /**
+     * 按 id 批量查用户并转成 Map —— 批量操作的公共前置。
+     *
+     * <p>存在的才进 Map，调用方 {@code users.get(id) == null} 就代表「这个 id 不存在」，
+     * 不需要再查一次确认。过滤 null 与去重，避免 {@code IN ()} 语法错误和重复查询。
+     */
+    private Map<Long, User> mapByIds(List<Long> ids) {
+        List<Long> validIds = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (validIds.isEmpty()) {
+            return Map.of();
+        }
+        return listByIds(validIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity(), (a, b) -> a));
+    }
+
+    /** 查单个用户，不存在就抛 404 —— 单条操作的公共前置 */
+    private User requireUser(Long userId) {
+        User user = getById(userId);
+        if (user == null) {
+            throw new BizException(ErrorCode.USER_NOT_FOUND);
+        }
+        return user;
+    }
 
     /** 批量查角色并分组：userId → [roleCode, ...] */
     private Map<Long, List<String>> mapRoleCodesByUserIds(List<Long> userIds) {
