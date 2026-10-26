@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.RecycleResourceType;
 import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.StorageProperties;
@@ -23,6 +24,7 @@ import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.DocumentService;
 import com.zest.mindforgeai.service.FileService;
 import com.zest.mindforgeai.service.KnowledgeBaseService;
+import com.zest.mindforgeai.service.RecycleBinService;
 import com.zest.mindforgeai.utils.DocumentStatusUtils;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -60,15 +62,18 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
     private final FileService fileService;
     private final AuditService auditService;
     private final StorageProperties storageProperties;
+    private final RecycleBinService recycleBinService;
 
     public DocumentServiceImpl(KnowledgeBaseService knowledgeBaseService,
                                FileService fileService,
                                AuditService auditService,
-                               StorageProperties storageProperties) {
+                               StorageProperties storageProperties,
+                               RecycleBinService recycleBinService) {
         this.knowledgeBaseService = knowledgeBaseService;
         this.fileService = fileService;
         this.auditService = auditService;
         this.storageProperties = storageProperties;
+        this.recycleBinService = recycleBinService;
     }
 
     @Override
@@ -238,6 +243,12 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
         if (kb != null && Integer.valueOf(1).equals(kb.getIsSystem())) {
             throw new BizException(ErrorCode.FORBIDDEN, "官方智库文档请通过管理端维护");
         }
+
+        // ★ 登记回收站。文档其实不需要快照（chunk 和 vector_id 都没删，fileId 也在主表），
+        //   但走统一入口 —— put 会让 DocumentRecycleHandler 记下 fileId，
+        //   快照丢了也能回退查主表。
+        recycleBinService.put(RecycleResourceType.DOCUMENT, documentId,
+                doc.getUserId(), doc.getFileName());
 
         // ① 逻辑删除 document（MP 自动设 deleted = 1）
         removeById(documentId);

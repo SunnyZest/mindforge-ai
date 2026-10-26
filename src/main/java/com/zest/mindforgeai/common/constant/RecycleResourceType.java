@@ -72,7 +72,15 @@ public enum RecycleResourceType {
      * 恢复时精确改回 0。唯一的坑是向量可能已被 Python 清掉，见
      * {@code KnowledgeBaseRecycleHandler}。
      */
-    KNOWLEDGE_BASE("knowledge_base", "知识库");
+    KNOWLEDGE_BASE("knowledge_base", "知识库"),
+    /**
+     * 文档（三期）。
+     *
+     * <p>★ 最简单的一个：删除只逻辑删 {@code document} + 软删 {@code sys_file}，
+     * **{@code document_chunk} 完全不动**。恢复只要把 sys_file 的 deleted_at 清空。
+     * 唯一的坑是向量可能已被 Python 清掉，见 {@code DocumentRecycleHandler}。
+     */
+    DOCUMENT("document", "文档");
 
     /** 原表名 —— 必须是本枚举里写死的字面量 */
     private final String table;

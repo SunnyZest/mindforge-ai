@@ -118,6 +118,19 @@ class RecycleBinApiTest extends AbstractApiTest {
         return n == null ? 0 : n;
     }
 
+    /** 逻辑删除标记（表名是测试内常量） */
+    private int deletedFlag(String table, long id) {
+        Integer n = jdbc.queryForObject(
+                "SELECT deleted FROM " + table + " WHERE id = ?", Integer.class, id);
+        return n == null ? -1 : n;
+    }
+
+    /** sys_file 的 deleted_at —— 恢复后必须是 null，否则清理任务会把 OSS 对象真删了 */
+    private java.time.LocalDateTime deletedAt(String table, long id) {
+        return jdbc.queryForObject(
+                "SELECT deleted_at FROM " + table + " WHERE id = ?", java.time.LocalDateTime.class, id);
+    }
+
     @Test
     @DisplayName("删除 Offer 后出现在回收站，带类型中文名与剩余天数")
     void deletingOfferPutsItIntoRecycleBin() {
@@ -388,6 +401,39 @@ class RecycleBinApiTest extends AbstractApiTest {
         get("/app/knowledge-bases/" + kbId, token).assertSuccess();
         // 级联删掉的文档全部回来了
         assertThat(countDeletedDocuments(kbId)).isZero();
+    }
+
+    @Test
+    @DisplayName("文档删除后恢复，sys_file 一起还原（三期）")
+    void restoreDocumentRestoresFile() {
+        String token = loginAsUser();
+        long userId = Long.parseLong(get("/app/auth/me", token).assertSuccess().id());
+        long kbId = 960001L;
+        long fileId = 960002L;
+        long docId = 960003L;
+
+        jdbc.update("INSERT INTO knowledge_base (id, user_id, name) VALUES (?, ?, ?)",
+                kbId, userId, "测试库");
+        jdbc.update("INSERT INTO sys_file (id, user_id, original_name, object_key, bucket_name, "
+                        + "file_size, biz_type, storage_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                fileId, userId, "测试.pdf", "obj/key", "bucket", 1024, "document", "OSS");
+        jdbc.update("INSERT INTO document (id, user_id, knowledge_base_id, file_id, file_name, file_type) "
+                + "VALUES (?, ?, ?, ?, ?, ?)", docId, userId, kbId, fileId, "测试.pdf", "PDF");
+
+        delete("/app/documents/" + docId, token).assertSuccess();
+
+        // 文档逻辑删、sys_file 软删（OSS 对象保留 30 天）
+        assertThat(deletedFlag("document", docId)).isEqualTo(1);
+        assertThat(deletedFlag("sys_file", fileId)).isEqualTo(1);
+
+        String binId = findBinIdByResource(token, String.valueOf(docId));
+        post(BASE + "/" + binId + "/restore", token, Map.of()).assertSuccess();
+
+        get("/app/documents/" + docId, token).assertSuccess();
+        assertThat(deletedFlag("document", docId)).isZero();
+        // ★ sys_file 的 deleted_at 也要清掉，否则 FilePurgeTask 会把 OSS 对象真删了
+        assertThat(deletedFlag("sys_file", fileId)).isZero();
+        assertThat(deletedAt("sys_file", fileId)).isNull();
     }
 
     @Test
