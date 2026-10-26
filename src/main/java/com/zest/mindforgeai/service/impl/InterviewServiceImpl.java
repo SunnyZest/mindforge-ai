@@ -832,7 +832,12 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
 
         List<InterviewQuestion> questions = questionMapper.selectList(
                 new LambdaQueryWrapper<InterviewQuestion>()
-                        .select(InterviewQuestion::getInterviewId,
+                        // 带上主键：select 部分列时，若某行所有被选列都是 null，
+                        // MyBatis 会返回 null 元素（returnInstanceForEmptyRow 默认 false）。
+                        // 这里 interview_id 是 NOT NULL 所以实际安全，但按规则统一带 id，
+                        // 免得以后有人照着这段写、把主键换成一个可空列。
+                        .select(InterviewQuestion::getId,
+                                InterviewQuestion::getInterviewId,
                                 InterviewQuestion::getAnsweredAt,
                                 InterviewQuestion::getScore)
                         .in(InterviewQuestion::getInterviewId, ids));
