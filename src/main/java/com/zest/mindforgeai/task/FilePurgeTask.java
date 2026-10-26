@@ -9,7 +9,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 已删除文件的物理清理任务。
@@ -62,26 +64,47 @@ public class FilePurgeTask {
         try {
             int totalPurged = 0;
 
+            // ★ 回收站里还有未过期记录的文件不能删 —— 用户随时可能恢复，
+            //   删了 OSS 对象就等于「记录能恢复、文件下载不了」。
+            //   恢复窗口和保留期都是 30 天但会错位（第 29 天恢复、第 30 天被清）。
+            Set<Long> protectedIds = new HashSet<>(sysFileMapper.findProtectedFileIds());
+            int totalProtected = 0;
+
             for (int i = 0; i < MAX_BATCHES; i++) {
                 List<SysFile> batch = sysFileMapper.selectPurgeable(cutoff, BATCH_SIZE);
                 if (batch.isEmpty()) {
                     break;
                 }
 
+                int purgedThisBatch = 0;
                 for (SysFile file : batch) {
+                    if (protectedIds.contains(file.getId())) {
+                        // ⚠️ 不能只是 continue：那样它每次都会被查出来、占满批次，
+                        //    把后面真正该清理的记录堵在外面（批次数有上限）。
+                        //    把 deleted_at 推到 now（续期），它要再过 retentionDays 天才到期，
+                        //    而那时回收站记录也早过期了。
+                        sysFileMapper.touchDeletedAt(file.getId());
+                        totalProtected++;
+                        continue;
+                    }
                     storageService.delete(file.getObjectKey());
                     sysFileMapper.physicalDeleteById(file.getId());
+                    purgedThisBatch++;
                 }
-                totalPurged += batch.size();
+                totalPurged += purgedThisBatch;
 
+                // 整批都被保护了 —— 再查下去还是同一批，直接收工
+                if (purgedThisBatch == 0) {
+                    break;
+                }
                 if (batch.size() < BATCH_SIZE) {
                     break;
                 }
             }
 
-            if (totalPurged > 0) {
-                log.info("清理已删除文件完成：物理删除 {} 条（恢复窗口 {} 天）",
-                        totalPurged, retentionDays);
+            if (totalPurged > 0 || totalProtected > 0) {
+                log.info("清理已删除文件完成：物理删除 {} 条，因回收站未过期而保留 {} 条（恢复窗口 {} 天）",
+                        totalPurged, totalProtected, retentionDays);
             } else {
                 log.debug("清理已删除文件：无需清理");
             }

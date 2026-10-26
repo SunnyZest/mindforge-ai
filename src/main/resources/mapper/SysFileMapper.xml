@@ -49,4 +49,50 @@
         DELETE FROM sys_file WHERE id = #{id}
     </delete>
 
+    <!--
+      查出「还不能删」的文件：回收站里还有未过期记录的，恢复后还要用这个文件。
+
+      ⚠️ 为什么必须用 UNION 而不是一条 JOIN：recycle_bin 的 (resource_type, resource_id)
+      是多态关联 —— 同一个 resource_id 在不同类型下指向不同的表，没法一条 JOIN 打通。
+      三种会占用文件的资源：文档、简历、知识库（知识库要级联到它下面的文档）。
+
+      ⚠️ document / resume 都有 deleted 列，但这里是原生 SQL，MP 不会自动加 deleted = 0，
+          所以能查到已逻辑删除的行 —— 这正是我们要的（它们就在回收站里）。
+    -->
+    <select id="findProtectedFileIds" resultType="java.lang.Long">
+        SELECT d.file_id
+        FROM recycle_bin r
+                 JOIN document d ON d.id = r.resource_id
+        WHERE r.resource_type = 'DOCUMENT'
+          AND r.expire_at &gt; NOW()
+          AND d.file_id IS NOT NULL
+        UNION
+        SELECT re.file_id
+        FROM recycle_bin r
+                 JOIN resume re ON re.id = r.resource_id
+        WHERE r.resource_type = 'RESUME'
+          AND r.expire_at &gt; NOW()
+          AND re.file_id IS NOT NULL
+        UNION
+        SELECT d.file_id
+        FROM recycle_bin r
+                 JOIN document d ON d.knowledge_base_id = r.resource_id
+        WHERE r.resource_type = 'KNOWLEDGE_BASE'
+          AND r.expire_at &gt; NOW()
+          AND d.file_id IS NOT NULL
+    </select>
+
+    <!--
+      给受保护的文件续期：把 deleted_at 推到 now。
+      不这么做的话，它每次都会被 selectPurgeable 查出来、占满一个批次，
+      把后面真正该清理的记录堵在外面（批次数有上限 MAX_BATCHES）。
+      续期之后它要再过 retentionDays 天才「到期」，而那时回收站记录也早过期了。
+    -->
+    <update id="touchDeletedAt">
+        UPDATE sys_file
+        SET deleted_at = NOW()
+        WHERE id = #{id}
+          AND deleted = 1
+    </update>
+
 </mapper>

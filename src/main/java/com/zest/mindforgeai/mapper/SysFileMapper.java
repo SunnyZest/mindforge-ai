@@ -36,4 +36,18 @@ public interface SysFileMapper extends BaseMapper<SysFile> {
      * 物理删除记录（绕过 MP 的逻辑删除），清理任务用。
      */
     int physicalDeleteById(@Param("id") Long id);
+
+    /**
+     * 查出「还不能删」的文件 id —— 回收站里还有未过期记录的。
+     *
+     * <p>为什么需要：恢复窗口和 OSS 保留期都是 30 天，但两者会错位。第 29 天恢复一份文档，
+     * 第 30 天清理任务就可能把它的 OSS 对象删掉，结果恢复出来的文档下载不了。
+     *
+     * <p>只覆盖三种会占用文件的资源：文档、简历、知识库（级联到它下面的文档）。
+     * 其余资源（Offer / 日程 / 职位 / 面试 / 对话）不持有 sys_file。
+     */
+    List<Long> findProtectedFileIds();
+
+    /** 给受保护的文件续期，避免它反复占满清理批次 */
+    int touchDeletedAt(@Param("id") Long id);
 }

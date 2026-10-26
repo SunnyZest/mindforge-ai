@@ -2,8 +2,10 @@ package com.zest.mindforgeai.api;
 
 import com.zest.mindforgeai.support.AbstractApiTest;
 import com.zest.mindforgeai.support.ApiResult;
+import com.zest.mindforgeai.task.FilePurgeTask;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
 
@@ -25,6 +27,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DisplayName("回收站")
 class RecycleBinApiTest extends AbstractApiTest {
+
+    @Autowired
+    private FilePurgeTask filePurgeTask;
 
     private static final String BASE = "/app/recycle-bin";
 
@@ -434,6 +439,36 @@ class RecycleBinApiTest extends AbstractApiTest {
         // ★ sys_file 的 deleted_at 也要清掉，否则 FilePurgeTask 会把 OSS 对象真删了
         assertThat(deletedFlag("sys_file", fileId)).isZero();
         assertThat(deletedAt("sys_file", fileId)).isNull();
+    }
+
+    @Test
+    @DisplayName("回收站里未过期的文件，清理任务不会删（OSS 对象保住）")
+    void purgeSkipsFileStillInRecycleBin() {
+        String token = loginAsUser();
+        long userId = Long.parseLong(get("/app/auth/me", token).assertSuccess().id());
+        long kbId = 970001L;
+        long fileId = 970002L;
+        long docId = 970003L;
+
+        jdbc.update("INSERT INTO knowledge_base (id, user_id, name) VALUES (?, ?, ?)",
+                kbId, userId, "清理测试库");
+        // 文件已过期（40 天前删除，保留期 30 天）
+        jdbc.update("INSERT INTO sys_file (id, user_id, original_name, object_key, bucket_name, "
+                        + "file_size, biz_type, storage_type, deleted, deleted_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, DATE_SUB(NOW(), INTERVAL 40 DAY))",
+                fileId, userId, "要保住的.pdf", "obj/protected", "bucket", 1024, "document", "OSS");
+        jdbc.update("INSERT INTO document (id, user_id, knowledge_base_id, file_id, file_name, file_type, deleted) "
+                + "VALUES (?, ?, ?, ?, ?, ?, 1)", docId, userId, kbId, fileId, "要保住的.pdf", "PDF");
+        // 但回收站记录还没过期 —— 用户随时可能恢复
+        jdbc.update("INSERT INTO recycle_bin (id, user_id, resource_type, resource_id, title, "
+                        + "deleted_at, expire_at) VALUES (?, ?, 'DOCUMENT', ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 10 DAY))",
+                970004L, userId, docId, "要保住的.pdf");
+
+        filePurgeTask.purgeExpiredFiles();
+
+        // ★ 文件没被物理删，而且 deleted_at 被续期到今天（否则它会一直占满清理批次）
+        assertThat(deletedFlag("sys_file", fileId)).isEqualTo(1);
+        assertThat(deletedAt("sys_file", fileId)).isNotNull();
     }
 
     @Test
