@@ -549,9 +549,13 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
         }
 
         List<Long> interviewIds = finished.stream().map(Interview::getId).toList();
+        // ⚠️ 必须把 id 也 select 出来：只查 score 一列时，若某行 score 为 null
+        //    （已作答但 AI 还没评分），MyBatis 会因为「全 null 行」直接返回 null 元素
+        //    （returnInstanceForEmptyRow 默认 false），下面的 q.getScore() 就 NPE。
+        //    带上主键 id（永不为 null），MyBatis 就一定会创建对象。
         List<InterviewQuestion> answered = questionMapper.selectList(
                 new LambdaQueryWrapper<InterviewQuestion>()
-                        .select(InterviewQuestion::getScore)
+                        .select(InterviewQuestion::getId, InterviewQuestion::getScore)
                         .in(InterviewQuestion::getInterviewId, interviewIds)
                         .isNotNull(InterviewQuestion::getAnsweredAt));
 
@@ -561,6 +565,10 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
         BigDecimal sum = BigDecimal.ZERO;
 
         for (InterviewQuestion q : answered) {
+            // 防御：万一 select 的还是全 null 行（MyBatis 会给 null 元素），别让统计整段炸掉
+            if (q == null) {
+                continue;
+            }
             BigDecimal s = q.getScore() == null ? BigDecimal.ZERO : q.getScore();
             sum = sum.add(s);
             if (s.compareTo(MASTERY_THRESHOLD) < 0) {
