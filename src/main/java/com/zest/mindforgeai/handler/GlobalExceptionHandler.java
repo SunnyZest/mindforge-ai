@@ -15,6 +15,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
+import org.springframework.util.StringUtils;
+import org.springframework.validation.FieldError;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -134,9 +136,14 @@ public class GlobalExceptionHandler {
     /** 参数校验失败 → 40001 */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Result<Void>> handleValid(MethodArgumentNotValidException e) {
-        String message = e.getBindingResult().getFieldError() == null
-                ? ErrorCode.PARAM_INVALID.getMessage()
-                : e.getBindingResult().getFieldError().getDefaultMessage();
+        // ⚠️ 两个坑：
+        //   1. 不能把 getFieldError() 调两次（判 null 一次、取值一次）—— SpotBugs 报
+        //      NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE，因为它无法保证两次返回同一个值；
+        //   2. getDefaultMessage() 本身可能为 null（校验注解没写 message 时），
+        //      直接传给 Result.fail 会让响应体里的 message 变成 null。
+        FieldError fieldError = e.getBindingResult().getFieldError();
+        String detail = fieldError == null ? null : fieldError.getDefaultMessage();
+        String message = StringUtils.hasText(detail) ? detail : ErrorCode.PARAM_INVALID.getMessage();
         return json(HttpStatus.BAD_REQUEST, Result.fail(ErrorCode.PARAM_INVALID, message));
     }
 
