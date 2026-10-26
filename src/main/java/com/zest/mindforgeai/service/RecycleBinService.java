@@ -3,6 +3,7 @@ package com.zest.mindforgeai.service;
 import com.zest.mindforgeai.common.constant.RecycleResourceType;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.RecycleBinVO;
+import com.zest.mindforgeai.pojo.vo.RecycleRestoreResultVO;
 
 /**
  * 回收站：逻辑删除后的恢复入口。
@@ -39,10 +40,12 @@ public interface RecycleBinService {
     /**
      * 恢复。把原表的 {@code deleted} 改回 0，并删掉回收站记录。
      *
+     * @return 恢复结果。{@code complete=false} 表示关联数据（技能/题目/消息）没回来，
+     *         只有主记录被还原 —— 前端应提示警告而不是成功
      * @throws com.zest.mindforgeai.common.exception.BizException
      *         记录不存在 / 不属于本人（404）、已过恢复期或原行已恢复（409）
      */
-    void restore(Long id);
+    RecycleRestoreResultVO restore(Long id);
 
     /**
      * 彻底删除（不可逆）：物理删掉原行，再删回收站记录。

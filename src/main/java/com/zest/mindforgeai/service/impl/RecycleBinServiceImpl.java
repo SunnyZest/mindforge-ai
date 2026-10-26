@@ -12,8 +12,10 @@ import com.zest.mindforgeai.mapper.RecycleBinMapper;
 import com.zest.mindforgeai.pojo.entity.RecycleBin;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.RecycleBinVO;
+import com.zest.mindforgeai.pojo.vo.RecycleRestoreResultVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.RecycleBinService;
+import com.zest.mindforgeai.service.RecycleRestoreHandler;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,6 +26,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 回收站实现。
@@ -49,12 +52,21 @@ public class RecycleBinServiceImpl extends ServiceImpl<RecycleBinMapper, Recycle
     private final AuditService auditService;
     private final StorageProperties storageProperties;
 
+    /**
+     * 资源类型 → 恢复策略。Offer / 面试日程没有 Handler（纯逻辑删除，改回 0 即可），
+     * 查不到就是 null —— 调用方据此跳过关联数据重建。
+     */
+    private final Map<RecycleResourceType, RecycleRestoreHandler> handlerMap;
+
     public RecycleBinServiceImpl(JdbcTemplate jdbc,
                                  AuditService auditService,
-                                 StorageProperties storageProperties) {
+                                 StorageProperties storageProperties,
+                                 List<RecycleRestoreHandler> handlers) {
         this.jdbc = jdbc;
         this.auditService = auditService;
         this.storageProperties = storageProperties;
+        this.handlerMap = handlers.stream()
+                .collect(Collectors.toMap(RecycleRestoreHandler::type, h -> h));
     }
 
     // ---------- 登记 ----------
@@ -70,11 +82,19 @@ public class RecycleBinServiceImpl extends ServiceImpl<RecycleBinMapper, Recycle
                 .eq(RecycleBin::getResourceId, resourceId));
 
         LocalDateTime now = LocalDateTime.now();
+
+        // ★ 需要快照的类型（职位 / 面试 / 对话）在这里采集关联数据。
+        //   所以调用方**必须在物理删之前**调 put —— 删完再调，采到的只会是空集合。
+        //   Offer / 面试日程没有 Handler，payloadJson 为 null。
+        RecycleRestoreHandler handler = handlerMap.get(type);
+        String payloadJson = handler == null ? null : handler.capturePayload(resourceId);
+
         save(new RecycleBin()
                 .setUserId(userId)
                 .setResourceType(type.name())
                 .setResourceId(resourceId)
                 .setTitle(abbreviate(title))
+                .setPayloadJson(payloadJson)
                 .setDeletedAt(now)
                 // 恢复窗口与 OSS 保留期对齐：文件都物理删了还允许「恢复」，
                 // 恢复出来只会是个空壳
@@ -107,7 +127,7 @@ public class RecycleBinServiceImpl extends ServiceImpl<RecycleBinMapper, Recycle
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void restore(Long id) {
+    public RecycleRestoreResultVO restore(Long id) {
         RecycleBin bin = requireOwned(id);
         if (bin.getExpireAt().isBefore(LocalDateTime.now())) {
             throw new BizException(ErrorCode.STATUS_CONFLICT, "这条记录已过恢复期，无法恢复");
@@ -123,13 +143,31 @@ public class RecycleBinServiceImpl extends ServiceImpl<RecycleBinMapper, Recycle
             throw new BizException(ErrorCode.STATUS_CONFLICT, "原记录已恢复或已不存在，无法重复恢复");
         }
 
+        // 关联数据（职位 / 面试 / 对话被物理删掉的部分）靠 payload 快照重建。
+        // 放在主表改回 0 之后 —— 恢复策略要读主表状态时才对得上。
+        // 没有 Handler 的类型（Offer / 面试日程）一定完整：它们删除时没有任何物理清理。
+        boolean complete = true;
+        RecycleRestoreHandler handler = handlerMap.get(type);
+        if (handler != null) {
+            complete = handler.restoreRelated(bin.getResourceId(), bin.getPayloadJson());
+        }
+
         removeById(bin.getId());
 
         auditService.recordSuccess(AuditConstants.ACTION_RECYCLE_RESTORE,
                 AuditConstants.RESOURCE_RECYCLE, String.valueOf(bin.getResourceId()),
-                Map.of("resourceType", type.name(), "title", bin.getTitle()));
+                Map.of("resourceType", type.name(), "title", bin.getTitle(),
+                        "complete", complete));
 
-        log.info("从回收站恢复 {} id={} title={}", type.name(), bin.getResourceId(), bin.getTitle());
+        log.info("从回收站恢复 {} id={} title={} complete={}",
+                type.name(), bin.getResourceId(), bin.getTitle(), complete);
+
+        // ★ 不完整必须让用户知道：主记录回来了、关联数据没回来，
+        //   只返回成功的话，他要打开详情才发现技能/题目/消息少了一半。
+        return complete
+                ? RecycleRestoreResultVO.complete()
+                : RecycleRestoreResultVO.incomplete(
+                        type.getLabel() + "的关联数据没有保存下来，只恢复了主记录");
     }
 
     // ---------- 彻底删除 ----------

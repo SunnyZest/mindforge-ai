@@ -12,6 +12,7 @@ import com.zest.mindforgeai.client.AiServiceClient;
 import com.zest.mindforgeai.client.AiServiceClient.JobParseData;
 import com.zest.mindforgeai.client.AiServiceClient.JobParseRequest;
 import com.zest.mindforgeai.common.constant.AuditConstants;
+import com.zest.mindforgeai.common.constant.RecycleResourceType;
 import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
@@ -41,6 +42,7 @@ import com.zest.mindforgeai.pojo.vo.JobVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.JobService;
+import com.zest.mindforgeai.service.RecycleBinService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -120,6 +122,7 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     private final InterviewMapper interviewMapper;
     private final InterviewReportMapper interviewReportMapper;
     private final TransactionTemplate transactionTemplate;
+    private final RecycleBinService recycleBinService;
 
     public JobServiceImpl(AuditService auditService,
                           ObjectMapper objectMapper,
@@ -130,7 +133,8 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
                           ResumeMapper resumeMapper,
                           InterviewMapper interviewMapper,
                           InterviewReportMapper interviewReportMapper,
-                          TransactionTemplate transactionTemplate) {
+                          TransactionTemplate transactionTemplate,
+                          RecycleBinService recycleBinService) {
         this.auditService = auditService;
         this.objectMapper = objectMapper;
         this.aiServiceClient = aiServiceClient;
@@ -141,6 +145,7 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
         this.interviewMapper = interviewMapper;
         this.interviewReportMapper = interviewReportMapper;
         this.transactionTemplate = transactionTemplate;
+        this.recycleBinService = recycleBinService;
     }
 
     @Override
@@ -263,6 +268,13 @@ public class JobServiceImpl extends ServiceImpl<JobMapper, Job> implements JobSe
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         Job job = requireOwned(id);
+
+        // ★ 必须在物理删之前登记回收站：put 会让 JobRecycleHandler 采集
+        //   job_skill / resume_job_analysis 的快照。删完再调就只能采到空集合，
+        //   恢复出来会是个「没有技能要求、没有匹配分析」的空职位。
+        recycleBinService.put(RecycleResourceType.JOB, id,
+                SecurityUtils.getUserId(), job.getTitle());
+
         removeById(id);
 
         // 技能和匹配分析【物理删】—— 这两张表都没有 deleted 列。

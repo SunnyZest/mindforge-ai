@@ -19,6 +19,7 @@ import com.zest.mindforgeai.client.AiServiceClient.InterviewReportRequest;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.RecycleResourceType;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.InterviewMapper;
 import com.zest.mindforgeai.mapper.InterviewQuestionMapper;
@@ -44,6 +45,7 @@ import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.InterviewService;
 import com.zest.mindforgeai.service.JobService;
 import com.zest.mindforgeai.service.KnowledgeBaseService;
+import com.zest.mindforgeai.service.RecycleBinService;
 import com.zest.mindforgeai.service.ResumeService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -118,6 +120,7 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
     private final JobService jobService;
     private final KnowledgeBaseService knowledgeBaseService;
     private final TransactionTemplate transactionTemplate;
+    private final RecycleBinService recycleBinService;
 
     public InterviewServiceImpl(InterviewQuestionMapper questionMapper,
                                 InterviewReportMapper reportMapper,
@@ -127,7 +130,8 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
                                 ResumeService resumeService,
                                 JobService jobService,
                                 KnowledgeBaseService knowledgeBaseService,
-                                TransactionTemplate transactionTemplate) {
+                                TransactionTemplate transactionTemplate,
+                                RecycleBinService recycleBinService) {
         this.questionMapper = questionMapper;
         this.reportMapper = reportMapper;
         this.aiServiceClient = aiServiceClient;
@@ -137,6 +141,7 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
         this.jobService = jobService;
         this.knowledgeBaseService = knowledgeBaseService;
         this.transactionTemplate = transactionTemplate;
+        this.recycleBinService = recycleBinService;
     }
 
     @Override
@@ -500,6 +505,12 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         Interview interview = requireOwned(id);
+
+        // ★ 必须在物理删之前登记回收站：put 会让 InterviewRecycleHandler 采集
+        //   interview_question / interview_report 的快照。这两张表没有 deleted 列，
+        //   删完再调就只能采到空集合 —— 而题目和报告是花 AI token 生成的。
+        recycleBinService.put(RecycleResourceType.INTERVIEW, id,
+                SecurityUtils.getUserId(), interview.getTitle());
 
         // ① 逻辑删面试（MP 自动设 deleted = 1）
         removeById(id);

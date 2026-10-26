@@ -10,6 +10,7 @@ import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ChatConstants;
 import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.RecycleResourceType;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.ChatMessageMapper;
 import com.zest.mindforgeai.mapper.ChatSourceMapper;
@@ -26,6 +27,7 @@ import com.zest.mindforgeai.pojo.vo.SourceVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.ConversationService;
 import com.zest.mindforgeai.service.KnowledgeBaseService;
+import com.zest.mindforgeai.service.RecycleBinService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -64,15 +66,18 @@ public class ConversationServiceImpl extends ServiceImpl<ConversationMapper, Con
     private final ChatSourceMapper sourceMapper;
     private final KnowledgeBaseService knowledgeBaseService;
     private final AuditService auditService;
+    private final RecycleBinService recycleBinService;
 
     public ConversationServiceImpl(ChatMessageMapper messageMapper,
                                    ChatSourceMapper sourceMapper,
                                    KnowledgeBaseService knowledgeBaseService,
-                                   AuditService auditService) {
+                                   AuditService auditService,
+                                   RecycleBinService recycleBinService) {
         this.messageMapper = messageMapper;
         this.sourceMapper = sourceMapper;
         this.knowledgeBaseService = knowledgeBaseService;
         this.auditService = auditService;
+        this.recycleBinService = recycleBinService;
     }
 
     @Override
@@ -172,6 +177,11 @@ public class ConversationServiceImpl extends ServiceImpl<ConversationMapper, Con
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long conversationId) {
         Conversation conversation = requireOwned(conversationId);
+
+        // ★ 必须在物理删之前登记回收站：put 会让 ConversationRecycleHandler 采集
+        //   chat_message / chat_source 的快照。删完再调只能采到空集合。
+        recycleBinService.put(RecycleResourceType.CONVERSATION, conversationId,
+                conversation.getUserId(), conversation.getTitle());
 
         // ⚠️ 没有外键级联，必须手动清三张表。
         //    conversation 有 deleted 列 → 逻辑删除；

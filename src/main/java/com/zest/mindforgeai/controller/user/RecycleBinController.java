@@ -3,6 +3,7 @@ package com.zest.mindforgeai.controller.user;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.RecycleBinVO;
+import com.zest.mindforgeai.pojo.vo.RecycleRestoreResultVO;
 import com.zest.mindforgeai.service.RecycleBinService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -50,12 +51,13 @@ public class RecycleBinController {
         return Result.success(recycleBinService.page(page, pageSize, resourceType));
     }
 
-    @Operation(summary = "恢复", description = "把原记录的逻辑删除改回未删除，并从回收站移除")
+    @Operation(summary = "恢复",
+            description = "把原记录的逻辑删除改回未删除，并从回收站移除。"
+                    + "返回 complete=false 表示关联数据（技能/题目/消息）没保存下来，只恢复了主记录")
     @PostMapping("/{id}/restore")
     @PreAuthorize("hasAuthority('app:recycle:write')")
-    public Result<Void> restore(@PathVariable Long id) {
-        recycleBinService.restore(id);
-        return Result.success();
+    public Result<RecycleRestoreResultVO> restore(@PathVariable Long id) {
+        return Result.success(recycleBinService.restore(id));
     }
 
     @Operation(summary = "彻底删除", description = "不可恢复；只删处于逻辑删除状态的原记录，已被恢复的不受影响")

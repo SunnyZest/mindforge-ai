@@ -30,7 +30,32 @@ import lombok.Getter;
 public enum RecycleResourceType {
 
     OFFER("job_offer", "Offer"),
-    JOB_EVENT("job_event", "面试日程");
+    JOB_EVENT("job_event", "面试日程"),
+    /**
+     * 职位（二期）。
+     *
+     * <p>⚠️ 它**不是**纯逻辑删除：删职位时会物理删掉 {@code job_skill} 与
+     * {@code resume_job_analysis}（两张表都没有 deleted 列），并级联逻辑删
+     * {@code job_event}。所以恢复必须靠 {@code payload_json} 里的快照重建，
+     * 见 {@code JobRecycleHandler}。
+     */
+    JOB("job", "职位"),
+    /**
+     * 模拟面试（二期）。
+     *
+     * <p>⚠️ 同样不是纯逻辑删除：删面试会物理删 {@code interview_question} 与
+     * {@code interview_report}（都没有 deleted 列）。这两样是 AI 生成的，丢了要重新烧 token，
+     * 所以必须靠 {@code payload_json} 快照恢复，见 {@code InterviewRecycleHandler}。
+     */
+    INTERVIEW("interview", "模拟面试"),
+    /**
+     * 对话（二期）。
+     *
+     * <p>⚠️ 删对话会物理删 {@code chat_message} 与 {@code chat_source}。
+     * 恢复时 {@code chat_source.message_id} 要重映射到新雪花，见
+     * {@code ConversationRecycleHandler} —— 这是三种资源里唯一有「子表引用子表」的。
+     */
+    CONVERSATION("conversation", "对话");
 
     /** 原表名 —— 必须是本枚举里写死的字面量 */
     private final String table;

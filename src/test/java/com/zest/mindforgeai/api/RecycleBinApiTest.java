@@ -57,6 +57,59 @@ class RecycleBinApiTest extends AbstractApiTest {
         return get(BASE, token).assertSuccess().data().get("records").get(0).path("id").asText();
     }
 
+    private String createJob(String token, String title) {
+        return post("/app/jobs", token, Map.of(
+                "title", title,
+                "companyName", "某公司",
+                "jobDescription", "负责后端开发")).assertSuccess().id();
+    }
+
+    /** 直接插 job_skill —— 该表没有 deleted 列，删除职位时是物理删 */
+    private void insertSkill(Long id, String jobId, String name) {
+        jdbc.update("INSERT INTO job_skill (id, job_id, skill_name, required, created_at) "
+                        + "VALUES (?, ?, ?, ?, NOW())",
+                id, Long.valueOf(jobId), name, 1);
+    }
+
+    private int countSkills(String jobId) {
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM job_skill WHERE job_id = ?",
+                Integer.class, Long.valueOf(jobId));
+        return n == null ? 0 : n;
+    }
+
+    /** 按原资源 id 找回收站记录 id */
+    private String findBinIdByResource(String token, String resourceId) {
+        ApiResult r = get(BASE + "?page=1&pageSize=50", token).assertSuccess();
+        for (var node : r.data().get("records")) {
+            if (resourceId.equals(node.path("resourceId").asText())) {
+                return node.path("id").asText();
+            }
+        }
+        throw new AssertionError("回收站里找不到 resourceId=" + resourceId);
+    }
+
+    /** 统计某面试下的子表行数（表名是测试内常量，不是外部输入） */
+    private int countByInterview(String table, long interviewId) {
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE interview_id = ?",
+                Integer.class, interviewId);
+        return n == null ? 0 : n;
+    }
+
+    /** 按某个外键列统计行数（表名/列名是测试内常量，不是外部输入） */
+    private int countBy(String table, String column, long value) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM " + table + " WHERE " + column + " = ?", Integer.class, value);
+        return n == null ? 0 : n;
+    }
+
+    /** chat_source 没有 conversation_id，只能通过 message_id 关联过去 */
+    private int countSources(long conversationId) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM chat_source s JOIN chat_message m ON m.id = s.message_id "
+                        + "WHERE m.conversation_id = ?", Integer.class, conversationId);
+        return n == null ? 0 : n;
+    }
+
     @Test
     @DisplayName("删除 Offer 后出现在回收站，带类型中文名与剩余天数")
     void deletingOfferPutsItIntoRecycleBin() {
@@ -133,6 +186,138 @@ class RecycleBinApiTest extends AbstractApiTest {
         delete(BASE + "/" + binId, token).assertSuccess();
 
         get("/app/offers/" + offerId, token).assertSuccess();
+    }
+
+    @Test
+    @DisplayName("职位删除后进回收站，恢复时技能一起回来（二期 payload 快照）")
+    void restoreJobBringsSkillsBack() {
+        String token = loginAsUser();
+        String jobId = createJob(token, "字节跳动");
+
+        // 手工插技能，不走 AI 解析（解析要 3 分钟，测试等不起）
+        insertSkill(900001L, jobId, "Java");
+        insertSkill(900002L, jobId, "Spring");
+        assertThat(countSkills(jobId)).isEqualTo(2);
+
+        delete("/app/jobs/" + jobId, token).assertSuccess();
+
+        // ★ 技能是被物理删的 —— 这正是二期要解决的那部分：
+        //   只把 job.deleted 改回 0 的话，恢复出来会是个没有技能要求的空职位
+        assertThat(countSkills(jobId)).isZero();
+
+        // 回收站记录里存了快照
+        String binId = findBinIdByResource(token, jobId);
+        String payload = jdbc.queryForObject(
+                "SELECT payload_json FROM recycle_bin WHERE id = ?", String.class, Long.valueOf(binId));
+        assertThat(payload).contains("Java").contains("Spring");
+
+        post(BASE + "/" + binId + "/restore", token, Map.of()).assertSuccess();
+
+        // 主表回来了，技能也一起回来了
+        get("/app/jobs/" + jobId, token).assertSuccess();
+        assertThat(countSkills(jobId)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("面试删除后恢复，题目与报告一起回来（二期 payload 快照）")
+    void restoreInterviewBringsQuestionsBack() {
+        String token = loginAsUser();
+        long userId = Long.parseLong(get("/app/auth/me", token).assertSuccess().id());
+        long interviewId = 910001L;
+
+        // 直接建数据，不走「出题」接口（那要调 AI，测试等不起）
+        jdbc.update("INSERT INTO interview (id, user_id, title, interview_type, question_count) "
+                + "VALUES (?, ?, ?, ?, ?)", interviewId, userId, "测试面试", "TECHNICAL", 2);
+        jdbc.update("INSERT INTO interview_question (id, interview_id, question_no, question) "
+                + "VALUES (?, ?, ?, ?)", 910002L, interviewId, 1, "请介绍 JVM 内存模型");
+        jdbc.update("INSERT INTO interview_question (id, interview_id, question_no, question) "
+                + "VALUES (?, ?, ?, ?)", 910003L, interviewId, 2, "Spring 事务传播行为有哪些");
+        jdbc.update("INSERT INTO interview_report (id, interview_id) VALUES (?, ?)",
+                910004L, interviewId);
+
+        delete("/app/interviews/" + interviewId, token).assertSuccess();
+
+        // ★ 题目和报告是被物理删的 —— 只恢复主表的话，这就是一个空面试
+        assertThat(countByInterview("interview_question", interviewId)).isZero();
+        assertThat(countByInterview("interview_report", interviewId)).isZero();
+
+        String binId = findBinIdByResource(token, String.valueOf(interviewId));
+        String payload = jdbc.queryForObject(
+                "SELECT payload_json FROM recycle_bin WHERE id = ?", String.class, Long.valueOf(binId));
+        assertThat(payload).contains("JVM 内存模型");
+
+        post(BASE + "/" + binId + "/restore", token, Map.of()).assertSuccess();
+
+        get("/app/interviews/" + interviewId, token).assertSuccess();
+        assertThat(countByInterview("interview_question", interviewId)).isEqualTo(2);
+        assertThat(countByInterview("interview_report", interviewId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("对话删除后恢复，消息与引用一起回来（message_id 要重映射）")
+    void restoreConversationBringsMessagesBack() {
+        String token = loginAsUser();
+        long userId = Long.parseLong(get("/app/auth/me", token).assertSuccess().id());
+        long convId = 920001L;
+
+        jdbc.update("INSERT INTO conversation (id, user_id, title, status) VALUES (?, ?, ?, ?)",
+                convId, userId, "测试对话", 1);
+        jdbc.update("INSERT INTO chat_message (id, conversation_id, role, content) VALUES (?, ?, ?, ?)",
+                920002L, convId, "USER", "什么是 JVM");
+        jdbc.update("INSERT INTO chat_message (id, conversation_id, role, content) VALUES (?, ?, ?, ?)",
+                920003L, convId, "ASSISTANT", "JVM 是 Java 虚拟机");
+        jdbc.update("INSERT INTO chat_source (id, message_id, document_id, chunk_id) VALUES (?, ?, ?, ?)",
+                920004L, 920002L, 1L, 1L);
+        jdbc.update("INSERT INTO chat_source (id, message_id, document_id, chunk_id) VALUES (?, ?, ?, ?)",
+                920005L, 920003L, 1L, 1L);
+
+        delete("/app/conversations/" + convId, token).assertSuccess();
+
+        assertThat(countBy("chat_message", "conversation_id", convId)).isZero();
+        assertThat(countSources(convId)).isZero();
+
+        String binId = findBinIdByResource(token, String.valueOf(convId));
+        String payload = jdbc.queryForObject(
+                "SELECT payload_json FROM recycle_bin WHERE id = ?", String.class, Long.valueOf(binId));
+        assertThat(payload).contains("什么是 JVM");
+
+        post(BASE + "/" + binId + "/restore", token, Map.of()).assertSuccess();
+
+        assertThat(countBy("chat_message", "conversation_id", convId)).isEqualTo(2);
+        assertThat(countSources(convId)).isEqualTo(2);
+
+        // ★ 关键断言：引用必须挂在「新」消息上。
+        //   如果恢复时沿用了旧 message_id，这里会 > 0 —— 那才是真正的坑
+        Integer dangling = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM chat_source s LEFT JOIN chat_message m ON m.id = s.message_id "
+                        + "WHERE m.id IS NULL", Integer.class);
+        assertThat(dangling).isZero();
+    }
+
+    @Test
+    @DisplayName("关联数据没保存下来时，恢复返回 complete=false 并带警告")
+    void restoreWithoutPayloadReturnsWarning() {
+        String token = loginAsUser();
+        long userId = Long.parseLong(get("/app/auth/me", token).assertSuccess().id());
+        long jobId = 930001L;
+
+        // 手工造「快照采集失败」的历史数据：已逻辑删的职位 + 一条 payload 为 NULL 的回收站记录。
+        // 现实里这发生在 capturePayload 抛异常时（那时只打了 log.error，删除照常进行）。
+        jdbc.update("INSERT INTO job (id, user_id, title, raw_content, deleted) VALUES (?, ?, ?, ?, 1)",
+                jobId, userId, "残缺职位", "职位描述正文");
+        jdbc.update("INSERT INTO recycle_bin (id, user_id, resource_type, resource_id, title, "
+                        + "payload_json, deleted_at, expire_at) "
+                        + "VALUES (?, ?, ?, ?, ?, NULL, NOW(), DATE_ADD(NOW(), INTERVAL 30 DAY))",
+                930002L, userId, "JOB", jobId, "残缺职位");
+
+        ApiResult r = post(BASE + "/930002/restore", token, Map.of()).assertSuccess();
+
+        // ★ 关键：不能只返回成功 —— 用户会以为「都回来了」
+        assertThat(r.data().path("complete").asBoolean()).isFalse();
+        assertThat(r.data().path("warning").asText()).contains("关联数据");
+
+        // 主表确实回来了
+        get("/app/jobs/" + jobId, token).assertSuccess();
     }
 
     @Test
