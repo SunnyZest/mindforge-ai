@@ -3,6 +3,7 @@ package com.zest.mindforgeai.api;
 import com.zest.mindforgeai.support.AbstractApiTest;
 import com.zest.mindforgeai.support.ApiResult;
 import com.zest.mindforgeai.task.FilePurgeTask;
+import com.zest.mindforgeai.task.RecycleBinCleanupTask;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,9 @@ class RecycleBinApiTest extends AbstractApiTest {
 
     @Autowired
     private FilePurgeTask filePurgeTask;
+
+    @Autowired
+    private RecycleBinCleanupTask recycleBinCleanupTask;
 
     private static final String BASE = "/app/recycle-bin";
 
@@ -469,6 +473,35 @@ class RecycleBinApiTest extends AbstractApiTest {
         // ★ 文件没被物理删，而且 deleted_at 被续期到今天（否则它会一直占满清理批次）
         assertThat(deletedFlag("sys_file", fileId)).isEqualTo(1);
         assertThat(deletedAt("sys_file", fileId)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("回收站记录过期后：先归档、再物理删业务行、最后删记录")
+    void cleanupArchivesThenPurges() {
+        String token = loginAsUser();
+        long userId = Long.parseLong(get("/app/auth/me", token).assertSuccess().id());
+        long jobId = 980001L;
+
+        // 一个已逻辑删的职位 + 一条已过期的回收站记录
+        jdbc.update("INSERT INTO job (id, user_id, title, raw_content, deleted) VALUES (?, ?, ?, ?, 1)",
+                jobId, userId, "过期待归档", "职位正文");
+        jdbc.update("INSERT INTO recycle_bin (id, user_id, resource_type, resource_id, title, "
+                        + "deleted_at, expire_at) VALUES (?, ?, 'JOB', ?, ?, "
+                        + "DATE_SUB(NOW(), INTERVAL 40 DAY), DATE_SUB(NOW(), INTERVAL 1 DAY))",
+                980002L, userId, jobId, "过期待归档");
+
+        recycleBinCleanupTask.cleanupExpired();
+
+        // ① 归档留痕了
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM deleted_data_archive WHERE resource_type = 'JOB' AND original_id = ?",
+                Integer.class, jobId)).isEqualTo(1);
+        // ② 业务行被物理删了（不是留成孤儿）
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM job WHERE id = ?", Integer.class, jobId))
+                .isZero();
+        // ③ 回收站记录也清了
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM recycle_bin WHERE id = 980002", Integer.class))
+                .isZero();
     }
 
     @Test

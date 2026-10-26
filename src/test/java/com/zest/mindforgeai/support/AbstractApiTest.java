@@ -206,6 +206,13 @@ public abstract class AbstractApiTest {
 
     private void clearBusinessData() {
         BUSINESS_TABLES.forEach(t -> jdbc.update("DELETE FROM " + t));
+        // 归档表不在 BUSINESS_TABLES 里：它可能还不存在（首次运行时由 RecycleBinCleanupTask
+        // 用 CREATE TABLE IF NOT EXISTS 建），直接 DELETE 会报表不存在
+        try {
+            jdbc.update("DELETE FROM deleted_data_archive");
+        } catch (Exception ignored) {
+            // 表还没建 —— 说明本进程还没跑过清理任务，也就没有归档需要清
+        }
         // 用例自己注册的用户也要清掉，只留基类造的两个账号
         jdbc.update("DELETE FROM `user` WHERE username NOT IN (?, ?)", USER_NAME, ADMIN_NAME);
         // 上面删掉的用户可能还留着角色绑定（没有外键，不会级联）
