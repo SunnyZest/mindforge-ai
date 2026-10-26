@@ -110,6 +110,14 @@ class RecycleBinApiTest extends AbstractApiTest {
         return n == null ? 0 : n;
     }
 
+    /** 某知识库下仍处于逻辑删除状态的文档数（0 表示都恢复了） */
+    private int countDeletedDocuments(long knowledgeBaseId) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM document WHERE knowledge_base_id = ? AND deleted = 1",
+                Integer.class, knowledgeBaseId);
+        return n == null ? 0 : n;
+    }
+
     @Test
     @DisplayName("删除 Offer 后出现在回收站，带类型中文名与剩余天数")
     void deletingOfferPutsItIntoRecycleBin() {
@@ -318,6 +326,68 @@ class RecycleBinApiTest extends AbstractApiTest {
 
         // 主表确实回来了
         get("/app/jobs/" + jobId, token).assertSuccess();
+    }
+
+    @Test
+    @DisplayName("简历删除后恢复，技能一起回来（三期 payload 快照）")
+    void restoreResumeBringsSkillsBack() {
+        String token = loginAsUser();
+        long userId = Long.parseLong(get("/app/auth/me", token).assertSuccess().id());
+        long resumeId = 940001L;
+
+        jdbc.update("INSERT INTO resume (id, user_id, name) VALUES (?, ?, ?)",
+                resumeId, userId, "测试简历");
+        jdbc.update("INSERT INTO resume_skill (id, resume_id, skill_name) VALUES (?, ?, ?)",
+                940002L, resumeId, "Java");
+        jdbc.update("INSERT INTO resume_skill (id, resume_id, skill_name) VALUES (?, ?, ?)",
+                940003L, resumeId, "MySQL");
+        assertThat(countBy("resume_skill", "resume_id", resumeId)).isEqualTo(2);
+
+        delete("/app/resumes/" + resumeId, token).assertSuccess();
+
+        // 技能是被物理删的 —— 只恢复主表的话，简历就成了「没有任何技能」
+        assertThat(countBy("resume_skill", "resume_id", resumeId)).isZero();
+
+        String binId = findBinIdByResource(token, String.valueOf(resumeId));
+        String payload = jdbc.queryForObject(
+                "SELECT payload_json FROM recycle_bin WHERE id = ?", String.class, Long.valueOf(binId));
+        assertThat(payload).contains("Java").contains("MySQL");
+
+        post(BASE + "/" + binId + "/restore", token, Map.of()).assertSuccess();
+
+        get("/app/resumes/" + resumeId, token).assertSuccess();
+        assertThat(countBy("resume_skill", "resume_id", resumeId)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("知识库删除后恢复，里面的文档一起回来（三期 payload 快照）")
+    void restoreKnowledgeBaseBringsDocumentsBack() {
+        String token = loginAsUser();
+        long userId = Long.parseLong(get("/app/auth/me", token).assertSuccess().id());
+        long kbId = 950001L;
+
+        jdbc.update("INSERT INTO knowledge_base (id, user_id, name) VALUES (?, ?, ?)",
+                kbId, userId, "测试知识库");
+        jdbc.update("INSERT INTO document (id, user_id, knowledge_base_id, file_name, file_type) "
+                + "VALUES (?, ?, ?, ?, ?)", 950002L, userId, kbId, "第一篇.pdf", "PDF");
+        jdbc.update("INSERT INTO document (id, user_id, knowledge_base_id, file_name, file_type) "
+                + "VALUES (?, ?, ?, ?, ?)", 950003L, userId, kbId, "第二篇.pdf", "PDF");
+
+        delete("/app/knowledge-bases/" + kbId, token).assertSuccess();
+
+        // 文档是逻辑删的（deleted = 1），不是物理删
+        assertThat(countDeletedDocuments(kbId)).isEqualTo(2);
+
+        String binId = findBinIdByResource(token, String.valueOf(kbId));
+        String payload = jdbc.queryForObject(
+                "SELECT payload_json FROM recycle_bin WHERE id = ?", String.class, Long.valueOf(binId));
+        assertThat(payload).contains("950002").contains("950003");
+
+        post(BASE + "/" + binId + "/restore", token, Map.of()).assertSuccess();
+
+        get("/app/knowledge-bases/" + kbId, token).assertSuccess();
+        // 级联删掉的文档全部回来了
+        assertThat(countDeletedDocuments(kbId)).isZero();
     }
 
     @Test

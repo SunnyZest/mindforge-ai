@@ -55,7 +55,24 @@ public enum RecycleResourceType {
      * 恢复时 {@code chat_source.message_id} 要重映射到新雪花，见
      * {@code ConversationRecycleHandler} —— 这是三种资源里唯一有「子表引用子表」的。
      */
-    CONVERSATION("conversation", "对话");
+    CONVERSATION("conversation", "对话"),
+    /**
+     * 简历（三期）。
+     *
+     * <p>⚠️ 删简历会物理删 {@code resume_skill} 与 {@code resume_job_analysis}，
+     * 但**不需要重新解析** —— 正文与解析结果在主表的 {@code structured_json} 里，
+     * 逻辑删不碰它。见 {@code ResumeRecycleHandler}。
+     */
+    RESUME("resume", "简历"),
+    /**
+     * 知识库（三期）。
+     *
+     * <p>★ 它**几乎全是逻辑删**（`knowledge_base` / `document` / `conversation` 置 deleted，
+     * `document_chunk` 压根不动），所以 payload 只记「删除那一刻被级联删掉了哪些 id」，
+     * 恢复时精确改回 0。唯一的坑是向量可能已被 Python 清掉，见
+     * {@code KnowledgeBaseRecycleHandler}。
+     */
+    KNOWLEDGE_BASE("knowledge_base", "知识库");
 
     /** 原表名 —— 必须是本枚举里写死的字面量 */
     private final String table;

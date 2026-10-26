@@ -12,8 +12,11 @@ import com.zest.mindforgeai.service.KnowledgeBaseCascadeService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 知识库级联清理实现
@@ -43,14 +46,20 @@ public class KnowledgeBaseCascadeServiceImpl implements KnowledgeBaseCascadeServ
     @Override
     public CascadeResult deleteCascade(Long knowledgeBaseId) {
         // 先查出该知识库下未删除文档关联的 fileId，同步做 sys_file 软删除（供 FilePurgeTask 清理底层存储）
-        List<Long> fileIds = documentMapper.selectList(new LambdaQueryWrapper<Document>()
-                        .select(Document::getFileId)
-                        .eq(Document::getKnowledgeBaseId, knowledgeBaseId))
-                .stream()
-                .map(Document::getFileId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
+        // ⚠️ 两个坑叠在一起，都踩过：
+        //   1. 写成 stream().map(getFileId).filter(nonNull).toList() 时，文档没有 file_id
+        //      会抛 NPE，堆栈指向 toList，看不出跟 file_id 有关；
+        //   2. 只 select 一列时，若该列全是 null，MyBatis 会返回 **null 元素**
+        //      （returnInstanceForEmptyRow 默认 false），所以必须判 doc != null。
+        Set<Long> fileIdSet = new LinkedHashSet<>();
+        for (Document doc : documentMapper.selectList(new LambdaQueryWrapper<Document>()
+                .select(Document::getFileId)
+                .eq(Document::getKnowledgeBaseId, knowledgeBaseId))) {
+            if (doc != null && doc.getFileId() != null) {
+                fileIdSet.add(doc.getFileId());
+            }
+        }
+        List<Long> fileIds = new ArrayList<>(fileIdSet);
 
         // ⚠️ 没有外键级联，关联数据必须手动清理。
         //    document / conversation 都有 deleted 列 → MP 的 delete() 走逻辑删除。

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.RecycleResourceType;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.mapper.KnowledgeBaseMapper;
 import com.zest.mindforgeai.pojo.dto.KnowledgeBaseCreateDTO;
@@ -17,6 +18,7 @@ import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.KnowledgeBaseCascadeService;
 import com.zest.mindforgeai.service.KnowledgeBaseService;
+import com.zest.mindforgeai.service.RecycleBinService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -56,11 +58,14 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
 
     private final KnowledgeBaseCascadeService cascadeService;
     private final AuditService auditService;
+    private final RecycleBinService recycleBinService;
 
     public KnowledgeBaseServiceImpl(KnowledgeBaseCascadeService cascadeService,
-                                    AuditService auditService) {
+                                    AuditService auditService,
+                                    RecycleBinService recycleBinService) {
         this.cascadeService = cascadeService;
         this.auditService = auditService;
+        this.recycleBinService = recycleBinService;
     }
 
     @Override
@@ -150,6 +155,13 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeBaseMapper, K
         if (Integer.valueOf(1).equals(kb.getIsSystem())) {
             throw new BizException(ErrorCode.FORBIDDEN, "官方智库由系统维护，普通用户无权删除");
         }
+
+        // ★ 必须在级联删之前登记回收站：put 会让 KnowledgeBaseRecycleHandler 记下
+        //   「即将被级联删掉的 documentIds / conversationIds」，删完再调就只剩空列表。
+        // ⚠️ 管理端删库走的是 AdminKnowledgeService，不经过这里 —— 管理员删别人的库
+        //    不该出现在用户的回收站里。
+        recycleBinService.put(RecycleResourceType.KNOWLEDGE_BASE, id,
+                kb.getUserId(), kb.getName());
 
         // 级联清理交给共享组件 —— 管理端删别人的库走的是同一套规则，
         // 两边各写一遍的话，将来加关联表时很容易只改一处，留下孤儿数据。

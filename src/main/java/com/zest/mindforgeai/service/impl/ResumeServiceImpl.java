@@ -16,6 +16,7 @@ import com.zest.mindforgeai.client.AiServiceClient.ResumeParseRequest;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.RecycleResourceType;
 import com.zest.mindforgeai.common.constant.UploadConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.StorageProperties;
@@ -38,6 +39,7 @@ import com.zest.mindforgeai.service.AuditService;
 import com.zest.mindforgeai.service.FileService;
 import com.zest.mindforgeai.service.JobService;
 import com.zest.mindforgeai.service.KnowledgeBaseService;
+import com.zest.mindforgeai.service.RecycleBinService;
 import com.zest.mindforgeai.service.ResumeService;
 import com.zest.mindforgeai.utils.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -103,6 +105,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
     private final JobService jobService;
     private final KnowledgeBaseService knowledgeBaseService;
     private final TransactionTemplate transactionTemplate;
+    private final RecycleBinService recycleBinService;
 
     public ResumeServiceImpl(FileService fileService,
                              AuditService auditService,
@@ -113,7 +116,8 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
                              ResumeJobAnalysisMapper resumeJobAnalysisMapper,
                              JobService jobService,
                              KnowledgeBaseService knowledgeBaseService,
-                             TransactionTemplate transactionTemplate) {
+                             TransactionTemplate transactionTemplate,
+                             RecycleBinService recycleBinService) {
         this.fileService = fileService;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
@@ -124,6 +128,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
         this.jobService = jobService;
         this.knowledgeBaseService = knowledgeBaseService;
         this.transactionTemplate = transactionTemplate;
+        this.recycleBinService = recycleBinService;
     }
 
     @Override
@@ -368,6 +373,11 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         Resume resume = requireOwned(id);
+
+        // ★ 必须在物理删之前登记回收站：put 会让 ResumeRecycleHandler 采集
+        //   resume_skill / resume_job_analysis 的快照。删完再调只能采到空集合。
+        recycleBinService.put(RecycleResourceType.RESUME, id,
+                SecurityUtils.getUserId(), resume.getName());
 
         // ① 逻辑删除 resume（MP 自动设 deleted = 1）
         removeById(id);
