@@ -81,6 +81,10 @@ MindForge 采用**“业务与重计算解耦、双端隔离、前后端单仓�
    └─────────────────┘           └─────────────────┘           └─────────────────┘
 ```
 
+> 图中 `MinIO` 是**规划中**的存储后端：`docker-compose.yml` 已编排 `minio` / `minio-init` 两个服务，
+> 但 Java 侧目前只实现了阿里云 OSS（`FileStorageService` 仅 `OssFileStorageServiceImpl` 一个实现）。
+> `StorageProperties` 注释里的 `LOCAL` / `MINIO` 两个取值尚未落地，切过去会因注入不到实现而启动失败。
+
 ### 核心架构设计原则：
 1. **硬性职责边界（数据权属在 Java，计算推理在 Python）**：
    - **Java 端**：拥有所有数据库直连权、事务控制、权限校验（RBAC）与对象存储持久化。绝不允许 Python 绕过 Java 直接查库或判断用户权限。
@@ -239,7 +243,9 @@ MAIL_PASSWORD=16位授权码
 2. 检查 `src/main/resources/application-dev.yml` 配置：
    - 确认 MySQL 连接用户名密码（**以 `application-dev.yml` 为准**，开发库用的是 `mind` 账号，不是 `root`）；
    - 确认 Redis 地址及端口；
-   - 确认对象存储配置（默认支持 `LOCAL` 本地文件目录，无需开通公网 OSS 即可运行）；
+   - 确认对象存储配置（**当前只实现了阿里云 OSS**，`mindforge.storage.type` 必须填 `OSS` 并配好
+     `endpoint` / `bucket` / `access-key-id` / `access-key-secret`；填 `LOCAL` 或 `MINIO` 会因
+     缺少对应的 `FileStorageService` 实现而**启动失败**）；
    - 确认内部服务通讯令牌 `mindforge.internal.service-token`（用于 Python 与 Java 相互鉴权）。
 3. 编译并启动服务：
    ```bash
@@ -338,12 +344,12 @@ MAIL_PASSWORD=16位授权码
 - `/api/internal/**`：供 Python AI 微服务反向调用 Java（不走用户 JWT，必须在 Header 中携带 `X-Service-Token`）。
 - `/internal/ai/v1/**`：供 Java 调用 Python 计算引擎（必须在 Header 中携带 `X-Service-Token` 与链路追踪 `X-Trace-Id`）。
 
-### 2. 规模速览（2026-10-22 实测）
+### 2. 规模速览（2026-10-27 实测）
 
 | 维度 | 数量 |
 | :--- | :--- |
 | HTTP 端点 | **155**（用户端 89 / 管理端 58 / 内部 8） |
-| 数据库表 / 实体 | **32 / 30**（29 业务 + 2 归档 + 回收站；归档表没有实体，走 JdbcTemplate。`id` 全为雪花，无一张表用 `AUTO_INCREMENT`） |
+| 数据库表 / 实体 | **33 / 30**（30 张有实体 + 3 张归档表：`sys_audit_log_archive`、`sys_alert_archive`、`deleted_data_archive`；归档表没有实体，走 JdbcTemplate。`id` 全为雪花，无一张表用 `AUTO_INCREMENT`） |
 | 权限码 | **59**（用户端 31 / 管理端 28），角色 3 个 |
 | 业务错误码 | **44**（含 `0` 成功） |
 
