@@ -32,6 +32,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 调 Python AI 服务（Java → Python 方向）。
@@ -80,11 +81,16 @@ public class AiServiceClient {
     private static final String PATH_INTERVIEW_ANALYZE = "/internal/ai/v1/interviews/analyze";
     private static final String PATH_INTERVIEW_REPORT = "/internal/ai/v1/interviews/report";
     private static final String PATH_URL_EXTRACT = "/internal/ai/v1/tools/url-extract";
+    private static final String PATH_INVITATION_EXTRACT = "/internal/ai/v1/calendar/extract-invitation";
     private static final String PATH_STATUS = "/internal/ai/v1/status";
 
     /** 状态探测的超时 —— 必须短，理由见 probeClient 字段 */
     private static final Duration PROBE_CONNECT_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration PROBE_READ_TIMEOUT = Duration.ofSeconds(3);
+
+    /** 邀约抽取的超时 —— 必须短于前端的 120 秒，理由见 invitationClient 字段 */
+    private static final Duration INVITATION_CONNECT_TIMEOUT = Duration.ofSeconds(3);
+    private static final Duration INVITATION_READ_TIMEOUT = Duration.ofSeconds(115);
 
     /** SSE 里数据行的前缀（Python 侧格式是 {@code data: {json}}） */
     private static final String SSE_DATA_PREFIX = "data:";
@@ -101,6 +107,22 @@ public class AiServiceClient {
      * 所以这里单独给一个 2s 连接 / 3s 读取的短超时客户端。
      */
     private final RestClient probeClient;
+
+    /**
+     * 邀约抽取专用客户端。
+     * <p>
+     * ★ <b>为什么也不能复用 {@link #restClient}</b>：它的读超时是 660 秒，
+     * 而邀约抽取是<b>用户盯着进度条等</b>的同步接口，前端自己 120 秒就断了。
+     * 用 660 秒的话，Python 一旦卡住，用户会在 120 秒时收到一个网络错误
+     * （看到的是「请求超时」，而不是后端给的「AI 服务超时，请稍后重试」），
+     * 同时 Java 线程还要再空等 9 分钟。
+     * <p>
+     * 115 秒这个数的取法：<b>略小于前端的 120 秒</b>。这样正常慢请求（预期 10~20 秒、
+     * 最坏 120 秒）在 115 秒内都还能拿到结果；真超时了也由后端先返回业务错误，
+     * 前端拿到的是能展示的文案，而不是自己断连。
+     */
+    private final RestClient invitationClient;
+
     private final ObjectMapper objectMapper;
 
     public AiServiceClient(AiServiceProperties properties, ObjectMapper objectMapper) {
@@ -126,6 +148,18 @@ public class AiServiceClient {
         this.probeClient = RestClient.builder()
                 .baseUrl(properties.getBaseUrl())
                 .requestFactory(probeFactory)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .defaultHeader(HEADER_SERVICE_TOKEN, properties.getServiceToken())
+                .build();
+
+        // 邀约抽取用的中短超时客户端（理由见 invitationClient 字段的注释）
+        SimpleClientHttpRequestFactory invitationFactory = new SimpleClientHttpRequestFactory();
+        invitationFactory.setConnectTimeout((int) INVITATION_CONNECT_TIMEOUT.toMillis());
+        invitationFactory.setReadTimeout((int) INVITATION_READ_TIMEOUT.toMillis());
+
+        this.invitationClient = RestClient.builder()
+                .baseUrl(properties.getBaseUrl())
+                .requestFactory(invitationFactory)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .defaultHeader(HEADER_SERVICE_TOKEN, properties.getServiceToken())
                 .build();
@@ -455,6 +489,30 @@ public class AiServiceClient {
         return envelope.data();
     }
 
+    /**
+     * 从面试邀约原文里抽日程（HR 发来的邮件 / 微信邀面词 / 截图 / PDF）。
+     * <p>
+     * ★ <b>Python 只负责「抽」，不负责「判」</b>：每个字段都带 {@code evidence}
+     * （支撑该值的原文片段），证据校验、枚举钳制、职位匹配全在 Java 这边做
+     * （见 {@code InvitationExtractServiceImpl}）。这样模型不听话也不会把脏数据
+     * 塞到用户面前 —— 校验逻辑在能被单测覆盖的地方。
+     * <p>
+     * ⚠️ <b>必须回传 {@code sourceText}</b>：{@code source=FILE} 时 Java 手上没有原文
+     * （PDF / DOCX / 图片都只有 Python 能解析），没有原文就没法做证据校验。
+     * 所以 Python 侧要把提取出来的正文一起回传，<b>但它不会返回给前端</b>。
+     * <p>
+     * ⚠️ 走 {@link #invitationClient}（115 秒），<b>不是</b> 660 秒的主客户端。
+     *
+     * @throws BizException AI_SERVICE_ERROR / AI_SERVICE_TIMEOUT，
+     *                      或由 Python 侧错误码翻译而来（如 42201 文件读不出文字）
+     */
+    public InvitationExtractData extractInvitation(InvitationExtractRequest request) {
+        AiEnvelope<InvitationExtractData> envelope = post(invitationClient, PATH_INVITATION_EXTRACT,
+                request, new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
     // ---------- 内部 ----------
 
     /**
@@ -469,8 +527,19 @@ public class AiServiceClient {
      */
     private <T> AiEnvelope<T> post(String path, Object body,
                                    ParameterizedTypeReference<AiEnvelope<T>> typeRef) {
+        return post(restClient, path, body, typeRef);
+    }
+
+    /**
+     * 同 {@link #post(String, Object, ParameterizedTypeReference)}，但指定用哪个客户端。
+     * <p>
+     * 只有超时预算不同的接口需要（状态探测 / 邀约抽取各有一个专用客户端）。
+     * 其余接口一律走主客户端，别为了「顺手」把慢接口也换成短超时的那个。
+     */
+    private <T> AiEnvelope<T> post(RestClient client, String path, Object body,
+                                   ParameterizedTypeReference<AiEnvelope<T>> typeRef) {
         try {
-            AiEnvelope<T> envelope = restClient.post()
+            AiEnvelope<T> envelope = client.post()
                     .uri(path)
                     // ⚠️ traceId 必须用【请求级】header 带过去，不能放进 defaultHeader ——
                     //    defaultHeader 在构造时求值一次，而 traceId 是每个请求一个（ThreadLocal），
@@ -1003,5 +1072,62 @@ public class AiServiceClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record UrlExtractData(String url, String title, String content, Integer charCount) {
+    }
+
+    // ---------- 面试邀约抽取 ----------
+
+    /**
+     * 邀约抽取入参。
+     * <p>
+     * ★ {@code text} 与 {@code fileType} + {@code contentBase64} <b>二选一</b>：
+     * 粘贴文本时只填前者，上传文件时只填后者。Python 侧按哪个非空走哪条解析路径。
+     * <p>
+     * {@code userId} 只用于 Python 侧的用量记账，不参与抽取本身。
+     */
+    public record InvitationExtractRequest(String userId,
+                                           String text,
+                                           String fileType,
+                                           String contentBase64) {
+    }
+
+    /**
+     * 邀约抽取结果。
+     * <p>
+     * ⚠️ {@code sourceText} 是<b>解析后的正文</b>（文件输入时 Java 手上没有，
+     * 只能由 Python 回传），Java 用它做证据校验，<b>不返回给前端</b>。
+     *
+     * @param events    抽出的候选日程，可能是空数组
+     * @param truncated 原文过长被截断时为 true
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record InvitationExtractData(String sourceText,
+                                        List<ExtractedEvent> events,
+                                        Boolean truncated) {
+    }
+
+    /**
+     * 单条候选日程。
+     * <p>
+     * ★ <b>所有字段都可为 null</b>，null = 原文没写，Python 侧<b>禁止填默认值</b>
+     * （「面试」两个字不等于技术一面）。
+     * <p>
+     * ★ {@code evidence} 是「字段名 → 支撑该值的原文片段」。Java 侧会逐项校验
+     * {@code 原文.contains(片段)}，不过的字段直接丢弃 —— 所以这里的字段
+     * 不是「模型说了算」，只是「模型的说法」。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ExtractedEvent(String title,
+                                 String companyName,
+                                 String positionName,
+                                 String eventType,
+                                 String eventAt,
+                                 Boolean eventAtDerived,
+                                 Integer durationMinutes,
+                                 String eventMode,
+                                 String location,
+                                 String meetingUrl,
+                                 String interviewer,
+                                 String note,
+                                 Map<String, String> evidence) {
     }
 }
