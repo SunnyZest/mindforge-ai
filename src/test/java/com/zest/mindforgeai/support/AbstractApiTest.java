@@ -6,6 +6,7 @@ import com.zest.mindforgeai.client.AiServiceClient;
 import com.zest.mindforgeai.pojo.vo.StoredFileVO;
 import com.zest.mindforgeai.service.FileStorageService;
 import com.zest.mindforgeai.service.VerificationCodeSender;
+import com.zest.mindforgeai.service.impl.ReminderMailSender;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -120,6 +121,16 @@ public abstract class AbstractApiTest {
     @MockitoBean
     protected VerificationCodeSender verificationCodeSender;
 
+    /**
+     * 日程提醒邮件同样一律 mock 掉。
+     * <p>
+     * ⚠️ 提醒任务每小时整点跑一次，测试进程如果正好在那个时刻执行到某条用例，
+     * 真实 sender 会尝试连 SMTP —— 没配授权码就失败，配了就<b>真的给测试账号发信</b>。
+     * mock 掉之后默认 {@code isConfigured()} 返回 false，提醒任务整轮跳过。
+     */
+    @MockitoBean
+    protected ReminderMailSender reminderMailSender;
+
     @Autowired
     protected StringRedisTemplate redis;
 
@@ -131,9 +142,23 @@ public abstract class AbstractApiTest {
         clearBusinessData();
         clearVerificationKeys();
         clearLoginAttempts();
+        clearQuotaKeys();
         ensureTestAccounts();
         stubFileStorage();
         stubVerificationSender();
+    }
+
+    /**
+     * 清掉按用户计的 AI 额度计数（邀约识别每小时 20 次）。
+     * <p>
+     * ⚠️ 和登录失败计数一样会跨用例残留：限流用例会故意把计数顶到 20，
+     * 不清的话后面所有用例都会拿到 42901，看起来像「接口坏了」。
+     */
+    private void clearQuotaKeys() {
+        Set<String> keys = redis.keys("mf:invitation:extract:*");
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
     }
 
     /**
@@ -228,6 +253,17 @@ public abstract class AbstractApiTest {
         Integer exists = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM `user` WHERE username = ?", Integer.class, username);
         if (exists != null && exists > 0) {
+            // 共享账号可能被某个用例改过（改邮箱、禁用、逻辑删除……）。
+            // 这里每次归一回去，让用例之间不依赖执行顺序 ——
+            // 实测踩过：一个用例把 t_user 的邮箱改成自己的，同包另一个用例的
+            // 「邮箱不可改」断言就挂了，而且只在整包跑时挂、单跑那个类是绿的。
+            // 只重置便宜的列，密码哈希不动（bcrypt 每次重算很慢，也没有用例改它）。
+            jdbc.update("""
+                    UPDATE `user`
+                       SET email = ?, nickname = ?, status = 1, deleted = 0,
+                           email_verified = 0, reminder_enabled = 1
+                     WHERE username = ?
+                    """, username + "@test.local", username, username);
             return;
         }
         long newUserId = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();

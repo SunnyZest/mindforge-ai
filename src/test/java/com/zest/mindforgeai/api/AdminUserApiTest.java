@@ -105,7 +105,7 @@ class AdminUserApiTest extends AbstractApiTest {
     // ------------------------------------------------------------ 详情
 
     @Test
-    @DisplayName("★ 详情：带角色与权限码，但不泄漏状态 / 邮箱（VO 里本就没有）")
+    @DisplayName("★ 详情：带角色、权限码与资源统计，且不泄漏密码")
     void detailReturnsRolesAndPermissions() {
         long id = userId(USER_NAME);
         ApiResult res = get("/admin/users/" + id, adminToken).assertSuccess().assertCamelCase();
@@ -114,8 +114,15 @@ class AdminUserApiTest extends AbstractApiTest {
         assertThat(res.data().path("username").asText()).isEqualTo(USER_NAME);
         assertThat(texts(res.data().path("roles"))).contains("USER");
         assertThat(res.data().path("permissions").size()).isGreaterThan(0);
-        assertThat(res.data().has("status")).isFalse();
-        assertThat(res.data().has("email")).isFalse();
+
+        // ⚠️ 这两条以前是反过来的（断言「不含 status / email」）——
+        //    那时候详情复用的是给 /app/auth/me 的 UserInfoVO，字段比列表还少。
+        //    2026-10-28 换成 AdminUserDetailVO 后，状态和邮箱是管理端排障的必需信息，
+        //    故意放开了；真正不能出现的是密码相关字段。
+        assertThat(res.data().path("status").asInt()).isEqualTo(1);
+        assertThat(res.data().path("email").asText()).isEqualTo(USER_NAME + "@test.local");
+        assertThat(res.data().has("passwordHash")).isFalse();
+        assertThat(res.data().has("password")).isFalse();
     }
 
     @Test

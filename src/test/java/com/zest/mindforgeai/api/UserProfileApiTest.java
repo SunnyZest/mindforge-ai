@@ -53,11 +53,31 @@ class UserProfileApiTest extends AbstractApiTest {
         assertThat(data.path("username").asText()).isEqualTo(USER_NAME);
         assertThat(data.path("email").asText()).isEqualTo(USER_NAME + "@test.local");
         assertThat(data.path("status").asInt()).isEqualTo(1);
-        assertThat(data.path("createdAt").isNull()).isFalse();
+        // ★ 时间是固定 19 位的 yyyy-MM-ddTHH:mm:ss，不能带小数秒。
+        //   Jackson 默认的 ISO_LOCAL_DATE_TIME 在有纳秒时会写成 ...T08:42:44.536，
+        //   前端按 YYYY-MM-DDTHH:mm:ss 严格解析会失败 —— 格式必须是「钉死」的，
+        //   不能随值变化。见 JacksonConfig。
+        assertThat(data.path("createdAt").asText()).matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}");
         // 认证视角只给身份和权限（见 UserInfoVO），这里应该都没有
         assertThat(data.path("permissions").isMissingNode()).isTrue();
         assertThat(data.path("roles").isMissingNode()).isTrue();
         assertThat(data.path("passwordHash").isMissingNode()).isTrue();
+    }
+
+    @Test
+    @DisplayName("emailVerified 如实透传 —— 未验证 0 / 已验证 1，前端据此提示「未验证」")
+    void emailVerifiedReflectsVerification() {
+        // 基类造的账号默认「邮箱未验证」
+        assertThat(get(PROFILE, token).assertSuccess().data().path("emailVerified").asInt()).isZero();
+        // 日程提醒的扫描条件里有 u.email_verified = 1，不给这个字段的话
+        // 用户打开开关却收不到信，页面上也没有任何线索
+        assertThat(get(PROFILE, token).assertSuccess().data().path("reminderEnabled").asInt())
+                .isEqualTo(1);
+
+        jdbc.update("UPDATE `user` SET email_verified = 1 WHERE username = ?", USER_NAME);
+
+        assertThat(get(PROFILE, token).assertSuccess().data().path("emailVerified").asInt())
+                .isEqualTo(1);
     }
 
     @Test
