@@ -42,6 +42,12 @@ public class UserProfileVO {
     @Schema(description = "1 正常 / 0 禁用")
     private Integer status;
 
+    @Schema(description = "邮箱是否已验证：1 已验证 / 0 未验证")
+    private Integer emailVerified;
+
+    @Schema(description = "是否接收日程邮件提醒：1 开启 / 0 关闭")
+    private Integer reminderEnabled;
+
     @Schema(description = "注册时间")
     private LocalDateTime createdAt;
 
@@ -54,6 +60,11 @@ public class UserProfileVO {
         vo.setPhone(user.getPhone());
         vo.setAvatarUrl(user.getAvatarUrl());
         vo.setStatus(user.getStatus());
+        // 老数据可能还没跑增量脚本，兜底成「未验证」——没验证过就是没验证过，
+        // 宁可让用户多点一次验证，也不能显示成「已验证」却收不到提醒邮件
+        vo.setEmailVerified(user.getEmailVerified() == null ? 0 : user.getEmailVerified());
+        // 老数据可能还没跑增量脚本，兜底成「开启」——和 DDL 的 DEFAULT 1 保持一致
+        vo.setReminderEnabled(user.getReminderEnabled() == null ? 1 : user.getReminderEnabled());
         vo.setCreatedAt(user.getCreatedAt());
         return vo;
     }

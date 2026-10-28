@@ -69,8 +69,8 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
         User user = requireCurrentUser();
         Long userId = user.getId();
 
-        // 两个字段都没传就没什么可改的，不必白打一次 UPDATE
-        if (dto.getNickname() == null && dto.getAvatarUrl() == null) {
+        // 什么都没传就没什么可改的，不必白打一次 UPDATE
+        if (dto.getNickname() == null && dto.getAvatarUrl() == null && dto.getReminderEnabled() == null) {
             return UserProfileVO.of(user);
         }
 
@@ -79,10 +79,13 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
                 .setId(userId)
                 .setNickname(dto.getNickname())
                 .setAvatarUrl(dto.getAvatarUrl())
+                // Boolean 转 tinyint：库里是 1/0，别把 true/false 直接塞给 MyBatis
+                .setReminderEnabled(dto.getReminderEnabled() == null
+                        ? null : (dto.getReminderEnabled() ? 1 : 0))
                 .setUpdatedAt(LocalDateTime.now()));
 
-        log.info("用户修改自己的资料 userId={} 昵称={} 头像={}",
-                userId, dto.getNickname() != null, dto.getAvatarUrl() != null);
+        log.info("用户修改自己的资料 userId={} 昵称={} 头像={} 提醒开关={}",
+                userId, dto.getNickname() != null, dto.getAvatarUrl() != null, dto.getReminderEnabled());
 
         // 这个接口也允许改头像（传任意 URL）。旧头像如果还是本地上传的文件，同样得清掉，
         // 否则它顶着一个 deleted=0 的身份继续公开可读（见 discardReplacedAvatar 的说明）。
@@ -95,6 +98,9 @@ public class UserProfileServiceImpl extends ServiceImpl<UserMapper, User>
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("nicknameChanged", dto.getNickname() != null);
         detail.put("avatarChanged", dto.getAvatarUrl() != null);
+        if (dto.getReminderEnabled() != null) {
+            detail.put("reminderEnabled", dto.getReminderEnabled());
+        }
         auditService.recordSuccess(AuditConstants.ACTION_USER_UPDATE_PROFILE,
                 AuditConstants.RESOURCE_USER, String.valueOf(userId), detail);
 

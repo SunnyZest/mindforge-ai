@@ -30,4 +30,13 @@ public class UserProfileUpdateDTO {
     @Schema(description = "头像地址")
     @Size(max = 500, message = "头像地址最长 500 个字符")
     private String avatarUrl;
+
+    /**
+     * 是否接收日程邮件提醒。传 {@code null} 表示不改。
+     * <p>
+     * ★ 这是本 DTO 里唯一的「开关」型字段：它不改身份信息，所以不需要验证新值可用，
+     * 和邮箱 / 手机号不是一类东西，放在这里没有额外风险。
+     */
+    @Schema(description = "是否接收日程邮件提醒：true 开启 / false 关闭，不传表示不改")
+    private Boolean reminderEnabled;
 }
