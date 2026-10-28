@@ -56,4 +56,34 @@
         </if>
     </select>
 
+    <!--
+      单个用户的资源占用统计（管理端用户详情）
+
+      为什么用「一条 SQL 六个子查询」而不是在 Java 里分别 count 五张表：
+        详情页只查一个人，一条 SQL 就是一次往返；分开写是 6 次。
+        子查询都走各自表的 user_id 索引，单用户下代价可以忽略。
+
+      ⚠️ 口径统一 deleted = 0：回收站里的不算占用。
+         想算「含回收站」的话不要改这里，另开一个方法 —— 混在一起会让
+         「用户说文件删了但占用没降」这类问题变得无法解释。
+
+      ⚠️ COALESCE(SUM(...), 0)：没有文件时 SUM 返回 NULL，
+         直接映射到 Long 会是 null，前端要额外判空。
+    -->
+    <select id="selectResourceStats" resultType="com.zest.mindforgeai.pojo.vo.UserResourceStatsVO">
+        SELECT
+            (SELECT COUNT(*) FROM knowledge_base
+              WHERE user_id = #{userId} AND deleted = 0)                AS knowledgeBaseCount,
+            (SELECT COUNT(*) FROM document
+              WHERE user_id = #{userId} AND deleted = 0)                AS documentCount,
+            (SELECT COUNT(*) FROM resume
+              WHERE user_id = #{userId} AND deleted = 0)                AS resumeCount,
+            (SELECT COUNT(*) FROM interview
+              WHERE user_id = #{userId} AND deleted = 0)                AS interviewCount,
+            (SELECT COUNT(*) FROM job
+              WHERE user_id = #{userId} AND deleted = 0)                AS jobCount,
+            (SELECT COALESCE(SUM(file_size), 0) FROM sys_file
+              WHERE user_id = #{userId} AND deleted = 0)                AS storageBytes
+    </select>
+
 </mapper>

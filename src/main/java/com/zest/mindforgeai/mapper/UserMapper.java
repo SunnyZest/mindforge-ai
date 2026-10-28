@@ -2,6 +2,7 @@ package com.zest.mindforgeai.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.zest.mindforgeai.pojo.entity.User;
+import com.zest.mindforgeai.pojo.vo.UserResourceStatsVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -58,4 +59,12 @@ public interface UserMapper extends BaseMapper<User> {
      */
     int countByPhoneActive(@Param("phone") String phone,
                            @Param("excludeUserId") Long excludeUserId);
+
+    /**
+     * 单个用户的资源占用统计（知识库 / 文档 / 简历 / 面试 / 职位数量 + 存储字节数）。
+     * <p>
+     * 一次 SQL 查完，不要拆成 5 次 count —— 见 {@code resources/mapper/UserMapper.xml}。
+     * 统计口径统一 {@code deleted = 0}（回收站里的不算）。
+     */
+    UserResourceStatsVO selectResourceStats(@Param("userId") Long userId);
 }

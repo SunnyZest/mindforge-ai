@@ -8,6 +8,7 @@ import com.zest.mindforgeai.pojo.dto.BatchRolesDTO;
 import com.zest.mindforgeai.pojo.dto.BatchStatusDTO;
 import com.zest.mindforgeai.pojo.dto.UserStatusDTO;
 import com.zest.mindforgeai.pojo.dto.UserUpdateDTO;
+import com.zest.mindforgeai.pojo.vo.AdminUserDetailVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.pojo.vo.UserSummaryVO;
@@ -89,10 +90,11 @@ public class AdminUserController {
         return Result.success();
     }
 
-    @Operation(summary = "用户详情")
+    @Operation(summary = "用户详情",
+            description = "比列表多：角色明细（含角色名）、有效权限、登录失败计数、资源占用与存储占用")
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('admin:user:detail')")
-    public Result<UserInfoVO> detail(@PathVariable Long id) {
+    public Result<AdminUserDetailVO> detail(@PathVariable Long id) {
         return Result.success(adminUserService.getUserDetail(id));
     }
 

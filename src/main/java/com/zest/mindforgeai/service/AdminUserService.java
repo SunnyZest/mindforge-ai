@@ -2,6 +2,7 @@ package com.zest.mindforgeai.service;
 
 import com.zest.mindforgeai.pojo.dto.AdminUserCreateDTO;
 import com.zest.mindforgeai.pojo.dto.UserUpdateDTO;
+import com.zest.mindforgeai.pojo.vo.AdminUserDetailVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.pojo.vo.UserSummaryVO;
@@ -30,8 +31,14 @@ public interface AdminUserService {
                                           String keyword, Integer status, String roleCode,
                                           String sortBy, String sortOrder);
 
-    /** 用户详情（含角色与权限） */
-    UserInfoVO getUserDetail(Long userId);
+    /**
+     * 用户详情（基础信息 + 角色明细 + 有效权限 + 登录失败计数 + 资源占用）。
+     * <p>
+     * ⚠️ 返回的是 {@link AdminUserDetailVO} 而<b>不是</b> {@link UserInfoVO} ——
+     * 后者与 {@code /app/auth/me} 共用，带管理端字段等于把风控数据发给用户本人。
+     * 改动前这里是 UserInfoVO，字段比列表项还少，前端因此一直没接这个接口。
+     */
+    AdminUserDetailVO getUserDetail(Long userId);
 
     /** 修改用户资料（昵称 / 邮箱 / 手机号 / 头像），null 字段表示不修改 */
     void updateProfile(Long userId, UserUpdateDTO dto);

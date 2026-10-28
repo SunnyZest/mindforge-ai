@@ -17,12 +17,16 @@ import com.zest.mindforgeai.pojo.dto.UserUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.SysRole;
 import com.zest.mindforgeai.pojo.entity.SysUserRole;
 import com.zest.mindforgeai.pojo.entity.User;
+import com.zest.mindforgeai.pojo.vo.AdminUserDetailVO;
+import com.zest.mindforgeai.pojo.vo.AdminUserRoleVO;
 import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
+import com.zest.mindforgeai.pojo.vo.UserResourceStatsVO;
 import com.zest.mindforgeai.pojo.vo.UserRoleItemVO;
 import com.zest.mindforgeai.pojo.vo.UserSummaryVO;
 import com.zest.mindforgeai.service.AdminUserService;
 import com.zest.mindforgeai.service.AuditService;
+import com.zest.mindforgeai.service.LoginAttemptService;
 import com.zest.mindforgeai.service.RefreshTokenService;
 import com.zest.mindforgeai.service.RoleHierarchyService;
 import com.zest.mindforgeai.service.UserService;
@@ -69,19 +73,22 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
     private final AuditService auditService;
     private final RoleHierarchyService roleHierarchyService;
     private final RefreshTokenService refreshTokenService;
+    private final LoginAttemptService loginAttemptService;
 
     public AdminUserServiceImpl(UserRoleMapper userRoleMapper,
                                 RoleMapper roleMapper,
                                 UserService userService,
                                 AuditService auditService,
                                 RoleHierarchyService roleHierarchyService,
-                                RefreshTokenService refreshTokenService) {
+                                RefreshTokenService refreshTokenService,
+                                LoginAttemptService loginAttemptService) {
         this.userRoleMapper = userRoleMapper;
         this.roleMapper = roleMapper;
         this.userService = userService;
         this.auditService = auditService;
         this.roleHierarchyService = roleHierarchyService;
         this.refreshTokenService = refreshTokenService;
+        this.loginAttemptService = loginAttemptService;
     }
 
     @Override
@@ -138,15 +145,33 @@ public class AdminUserServiceImpl extends ServiceImpl<UserMapper, User> implemen
     }
 
     @Override
-    public UserInfoVO getUserDetail(Long userId) {
+    public AdminUserDetailVO getUserDetail(Long userId) {
         User user = getById(userId);
         if (user == null) {
             throw new BizException(ErrorCode.USER_NOT_FOUND);
         }
-        // 单用户详情，直接查两次即可（不是列表，不存在 N+1）
-        return UserInfoVO.of(user,
-                userService.listRoleCodes(userId),
+
+        // 单用户详情，不存在 N+1 问题，按需查 3 次即可：
+        // 角色明细（含角色名）、有效权限、资源占用（一条 SQL 查 5 张表）
+        List<AdminUserRoleVO> roleItems = userRoleMapper.selectRolesByUserId(userId);
+        AdminUserDetailVO vo = AdminUserDetailVO.of(user, roleItems,
                 userService.listPermissionCodes(userId));
+
+        UserResourceStatsVO stats = baseMapper.selectResourceStats(userId);
+        vo.setKnowledgeBaseCount(stats == null ? 0 : stats.getKnowledgeBaseCount());
+        vo.setDocumentCount(stats == null ? 0 : stats.getDocumentCount());
+        vo.setResumeCount(stats == null ? 0 : stats.getResumeCount());
+        vo.setInterviewCount(stats == null ? 0 : stats.getInterviewCount());
+        vo.setJobCount(stats == null ? 0 : stats.getJobCount());
+        vo.setStorageBytes(stats == null ? 0L : stats.getStorageBytes());
+
+        // 登录失败计数是 Redis 里的实时值：登录成功会清零、key 到期自动消失，
+        // 所以它回答的是「现在是不是正被猜密码」，不是历史累计次数。
+        // 两个方法内部都不抛异常（Redis 不可用返回 0），详情页不会因此 500。
+        vo.setFailedLoginCount(loginAttemptService.currentFailureCount(user.getUsername()));
+        vo.setLoginLockRemainingSeconds(loginAttemptService.lockRemainingSeconds(user.getUsername()));
+
+        return vo;
     }
 
     @Override

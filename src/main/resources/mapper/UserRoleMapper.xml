@@ -26,4 +26,23 @@
         </foreach>
     </select>
 
+    <!--
+      单个用户的角色明细（管理端用户详情）
+
+      ⚠️ 和上面那条一样：没有外键，关联写在 SQL 里；
+         自定义 SQL 不经过 MP 的逻辑删除，sys_role 的 deleted / status 需手动过滤。
+         过滤 status = 1 是与权限码口径保持一致 —— 停用的角色不该出现在「他有什么角色」里。
+    -->
+    <select id="selectRolesByUserId" resultType="com.zest.mindforgeai.pojo.vo.AdminUserRoleVO">
+        SELECT r.id   AS roleId,
+               r.code AS roleCode,
+               r.name AS roleName
+        FROM sys_user_role ur
+        JOIN sys_role r ON r.id = ur.role_id
+                       AND r.status = 1
+                       AND r.deleted = 0
+        WHERE ur.user_id = #{userId}
+        ORDER BY r.id
+    </select>
+
 </mapper>

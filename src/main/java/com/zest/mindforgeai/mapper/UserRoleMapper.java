@@ -2,6 +2,7 @@ package com.zest.mindforgeai.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.zest.mindforgeai.pojo.entity.SysUserRole;
+import com.zest.mindforgeai.pojo.vo.AdminUserRoleVO;
 import com.zest.mindforgeai.pojo.vo.UserRoleItemVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -26,4 +27,14 @@ public interface UserRoleMapper extends BaseMapper<SysUserRole> {
      * @param userIds 调用方需保证非空集合（空集合会生成非法的 IN ()）
      */
     List<UserRoleItemVO> selectRoleCodesByUserIds(@Param("userIds") Collection<Long> userIds);
+
+    /**
+     * 查询单个用户的角色明细（roleId / code / name），管理端用户详情用。
+     * <p>
+     * 与 {@link #selectRoleCodesByUserIds} 的区别：那个是列表页批量取 code 后在内存分组的，
+     * 这个是单人详情、要带上角色名给管理员看。
+     * <p>
+     * SQL 见 {@code resources/mapper/UserRoleMapper.xml}。
+     */
+    List<AdminUserRoleVO> selectRolesByUserId(@Param("userId") Long userId);
 }

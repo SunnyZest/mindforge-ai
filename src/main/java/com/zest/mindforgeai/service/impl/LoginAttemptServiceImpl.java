@@ -188,6 +188,46 @@ public class LoginAttemptServiceImpl implements LoginAttemptService {
         }
     }
 
+    // ---------- 只读查询（管理端排障用） ----------
+
+    /**
+     * ⚠️ 为什么不直接让管理端去 Redis 里按 {@code mf:login:fail:u:} + 用户名 自己取：
+     * 那个 key 的拼法（含小写归一、截断）只该有一处实现。
+     * 在调用方复刻一遍，哪天这里改了前缀或归一规则，管理端就会静默地读到 0 ——
+     * 而且「读到 0」看起来像「没失败过」，比报错更难发现。
+     */
+    @Override
+    public int currentFailureCount(String username) {
+        if (!properties.getLoginAttempt().isEnabled()) {
+            return 0;
+        }
+        try {
+            String value = redis.opsForValue().get(PREFIX_USER + normalize(username));
+            return value == null ? 0 : Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            // 值被改坏了，与 checkNotLocked 的处理保持一致：当作没有计数
+            log.warn("登录失败计数不是数字，按 0 处理 username={}", username);
+            return 0;
+        } catch (Exception e) {
+            log.error("查询登录失败次数失败（Redis 不可用？）username={}", username, e);
+            return 0;
+        }
+    }
+
+    @Override
+    public long lockRemainingSeconds(String username) {
+        if (!properties.getLoginAttempt().isEnabled()) {
+            return 0;
+        }
+        try {
+            return lockedRemainSeconds(PREFIX_USER + normalize(username),
+                    properties.getLoginAttempt().getMaxPerUsername());
+        } catch (Exception e) {
+            log.error("查询登录锁定剩余时间失败（Redis 不可用？）username={}", username, e);
+            return 0;
+        }
+    }
+
     // ---------- 内部 ----------
 
     /**

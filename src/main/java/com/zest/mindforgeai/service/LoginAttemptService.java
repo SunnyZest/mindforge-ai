@@ -50,4 +50,23 @@ public interface LoginAttemptService {
      * 修改密码成功时调用：清空该用户的修改密码失败计数。
      */
     void recordPasswordChangeSuccess(String username, String clientIp);
+
+    /**
+     * 查询账号<b>当前窗口内</b>的登录失败次数（只读，供管理端排障用）。
+     * <p>
+     * 语义说明：不是历史累计值。登录成功会清零，key 到期（锁定时长）也会自动消失。
+     * 所以它回答的是「这个账号现在是不是正被猜密码」，而不是「它这辈子失败过几次」。
+     * <p>
+     * 不抛异常：Redis 不可用时返回 0（与 {@link #checkNotLocked} 的 fail-open 口径一致）——
+     * 查询失败不该让管理端详情页整个 500。
+     */
+    int currentFailureCount(String username);
+
+    /**
+     * 账号剩余锁定秒数，未锁定返回 0（只读，供管理端排障用）。
+     * <p>
+     * 与 {@link #currentFailureCount} 的区别：失败次数没到阈值时，
+     * 这里返回 0 而那边可能已经有值 —— 前者回答「还能不能登」，后者回答「已经错了几次」。
+     */
+    long lockRemainingSeconds(String username);
 }
