@@ -1,5 +1,6 @@
 package com.zest.mindforgeai.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -10,10 +11,12 @@ import com.zest.mindforgeai.common.query.SortSupport;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.properties.StorageProperties;
+import com.zest.mindforgeai.mapper.DocumentChunkMapper;
 import com.zest.mindforgeai.mapper.DocumentMapper;
 import com.zest.mindforgeai.mapper.KnowledgeBaseMapper;
 import com.zest.mindforgeai.pojo.dto.DocumentStatusUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.Document;
+import com.zest.mindforgeai.pojo.entity.DocumentChunk;
 import com.zest.mindforgeai.pojo.entity.KnowledgeBase;
 import com.zest.mindforgeai.pojo.entity.SysFile;
 import com.zest.mindforgeai.pojo.vo.AdminDocumentVO;
@@ -31,6 +34,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -83,6 +87,7 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
             "updatedAt", "d.updated_at");
 
     private final DocumentMapper documentMapper;
+    private final DocumentChunkMapper documentChunkMapper;
     private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final FileService fileService;
     private final AuditService auditService;
@@ -92,6 +97,7 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
     private final TransactionTemplate transactionTemplate;
 
     public AdminDocumentServiceImpl(DocumentMapper documentMapper,
+                                    DocumentChunkMapper documentChunkMapper,
                                     KnowledgeBaseMapper knowledgeBaseMapper,
                                     FileService fileService,
                                     AuditService auditService,
@@ -99,6 +105,7 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
                                     AiServiceClient aiServiceClient,
                                     TransactionTemplate transactionTemplate) {
         this.documentMapper = documentMapper;
+        this.documentChunkMapper = documentChunkMapper;
         this.knowledgeBaseMapper = knowledgeBaseMapper;
         this.fileService = fileService;
         this.auditService = auditService;
@@ -134,7 +141,43 @@ public class AdminDocumentServiceImpl implements AdminDocumentService {
             throw new BizException(ErrorCode.DOCUMENT_NOT_FOUND);
         }
         fillAggregateStatus(vo);
+        fillDetailExtras(id, vo);
         return vo;
+    }
+
+    /**
+     * 详情独有的三个字段：分块数、预签名下载地址、处理耗时。
+     * <p>
+     * 刻意<b>不</b>放进列表：列表一页 20 条，每条都 count 一次 {@code document_chunk}
+     * 就是 20 次额外查询（N+1），而列表页并不需要这三个数字。
+     */
+    private void fillDetailExtras(Long documentId, AdminDocumentVO vo) {
+        Long chunkCount = documentChunkMapper.selectCount(
+                new LambdaQueryWrapper<DocumentChunk>()
+                        .eq(DocumentChunk::getDocumentId, documentId));
+        vo.setChunkCount(chunkCount == null ? 0 : chunkCount.intValue());
+
+        // 下载地址：只有关联了 sys_file 的文档才有（网页导入的没有文件对象）。
+        // 生成失败不影响详情其余字段 —— 存储没配好时管理员更需要看到文档状态本身。
+        if (StringUtils.hasText(vo.getFileId())) {
+            try {
+                SysFile file = fileService.getById(Long.valueOf(vo.getFileId()));
+                if (file != null) {
+                    vo.setDownloadUrl(fileService.downloadUrl(file));
+                }
+            } catch (Exception e) {
+                log.warn("生成文档下载地址失败 documentId={} fileId={}", documentId, vo.getFileId(), e);
+            }
+        }
+
+        // 处理耗时：库里没有单独的打点列，只能拿 created_at → updated_at 的差值，
+        // 它包含排队时间，且只在「已处理完」时才有意义（半截耗时会误导人）。
+        if (DocumentStatusUtils.COMPLETED.equals(vo.getStatus())
+                && vo.getCreatedAt() != null && vo.getUpdatedAt() != null) {
+            long millis = Duration.between(vo.getCreatedAt(), vo.getUpdatedAt()).toMillis();
+            // 时钟回拨等异常情况下会是负数，这种值不给出去
+            vo.setProcessDurationMs(millis >= 0 ? millis : null);
+        }
     }
 
     @Override

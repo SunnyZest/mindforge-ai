@@ -31,6 +31,15 @@ public class AdminKnowledgeBaseVO {
     @Schema(description = "归属用户名")
     private String username;
 
+    /**
+     * 归属人昵称。
+     * <p>
+     * 和 {@link #username} 一起返回的原因：管理员认人靠昵称（用户注册时填的那个），
+     * 排查时只看 username（登录名）经常对不上号。没有昵称的账号为 null。
+     */
+    @Schema(description = "归属人昵称，未设置为 null")
+    private String ownerNickname;
+
     @Schema(description = "名称")
     private String name;
 
@@ -42,6 +51,18 @@ public class AdminKnowledgeBaseVO {
 
     @Schema(description = "文档数（实时统计，不是表里的冗余字段）")
     private Integer documentCount;
+
+    /**
+     * 库内文档的总字节数（{@code document.file_size} 求和，只算 {@code deleted = 0}）。
+     * <p>
+     * 用途：管理端排查「哪个库把存储吃掉了」。注意它统计的是<b>文档记录</b>的大小，
+     * 与 {@code sys_file} 的实际对象大小可能有细微差异（同一文件被多个库引用时会重复计）。
+     */
+    @Schema(description = "库内文档总字节数")
+    private Long totalBytes;
+
+    @Schema(description = "最近一次上传文档的时间，空库为 null")
+    private LocalDateTime lastDocumentAt;
 
     @Schema(description = "创建时间")
     private LocalDateTime createdAt;

@@ -28,6 +28,9 @@ public final class DocumentStatusUtils {
     /** 正在解析 */
     public static final String PARSING = "PARSING";
 
+    /** 聚合后的最终态：三个阶段全部成功。 */
+    public static final String COMPLETED = "COMPLETED";
+
     private DocumentStatusUtils() {
     }
 
@@ -54,7 +57,7 @@ public final class DocumentStatusUtils {
             return FAILED;
         }
         if (SUCCESS.equals(vectorStatus)) {
-            return "COMPLETED";
+            return COMPLETED;
         }
         if (SUCCESS.equals(chunkStatus)) {
             return "CHUNKED";

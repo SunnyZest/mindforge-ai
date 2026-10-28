@@ -23,6 +23,7 @@
         kb.name             AS knowledgeBaseName,
         d.user_id           AS userId,
         u.username          AS username,
+        d.file_id           AS fileId,
         d.file_name         AS fileName,
         d.file_type         AS fileType,
         d.file_size         AS fileSize,
@@ -31,7 +32,8 @@
         d.vector_status     AS vectorStatus,
         d.error_message     AS errorMessage,
         d.page_count        AS pageCount,
-        d.created_at        AS createdAt
+        d.created_at        AS createdAt,
+        d.updated_at        AS updatedAt
     </sql>
 
     <select id="selectAdminPage" resultType="com.zest.mindforgeai.pojo.vo.AdminDocumentVO">

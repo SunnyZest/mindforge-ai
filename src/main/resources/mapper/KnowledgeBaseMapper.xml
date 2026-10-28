@@ -63,6 +63,7 @@
         kb.id,
         kb.user_id      AS userId,
         u.username      AS username,
+        u.nickname      AS ownerNickname,
         kb.name,
         kb.description,
         kb.status,
@@ -71,6 +72,14 @@
            FROM document d
           WHERE d.knowledge_base_id = kb.id
             AND d.deleted = 0)   AS documentCount,
+        (SELECT COALESCE(SUM(d.file_size), 0)
+           FROM document d
+          WHERE d.knowledge_base_id = kb.id
+            AND d.deleted = 0)   AS totalBytes,
+        (SELECT MAX(d.created_at)
+           FROM document d
+          WHERE d.knowledge_base_id = kb.id
+            AND d.deleted = 0)   AS lastDocumentAt,
         kb.created_at   AS createdAt,
         kb.updated_at   AS updatedAt
     </sql>
