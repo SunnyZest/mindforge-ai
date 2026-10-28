@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zest.mindforgeai.mapper.JobEventMapper">
+
+    <!--
+      日程主动提醒的四条 SQL。
+
+      ⚠️ 全部手写 deleted = 0：全局逻辑删除只作用于 MyBatis-Plus 拼的 SQL，
+         手写 SQL 它管不着。漏写的后果是把用户删掉的日程也提醒一遍。
+    -->
+
+    <!--
+      候选用户：未来窗口内有 PENDING 日程，且这个用户「收得到、也愿意收」邮件。
+
+      过滤条件逐条都有理由，别随手删：
+        u.status = 1             被禁用的账号不发
+        u.reminder_enabled = 1   用户自己关掉的开关，尊重
+        u.email_verified = 1     没验证过的邮箱大概率是打错的，发出去就是退信
+        e.event_at > from        已经开始的日程再提醒没有意义（用户已经在面试了）
+    -->
+    <select id="selectRemindableUserIds" resultType="java.lang.Long">
+        SELECT DISTINCT e.user_id
+        FROM job_event e
+                 JOIN `user` u ON u.id = e.user_id
+        WHERE e.deleted = 0
+          AND e.status = 'PENDING'
+          AND e.event_at &gt; #{from}
+          AND e.event_at &lt;= #{to}
+          AND e.reminded_at IS NULL
+          AND e.remind_fail_count &lt; #{maxFail}
+          AND u.deleted = 0
+          AND u.status = 1
+          AND u.reminder_enabled = 1
+          AND u.email_verified = 1
+          AND u.email IS NOT NULL
+          AND u.email &lt;&gt; ''
+    </select>
+
+    <!--
+      抢占：把「该不该发」和「已经发了」压成一次原子更新。
+      受影响行数 = 0 就是没抢到（或本来没有），此时绝不能发信 —— 这是防重复推送的唯一关口。
+    -->
+    <update id="claimReminder">
+        UPDATE job_event
+        SET reminded_at = #{now}
+        WHERE user_id = #{userId}
+          AND deleted = 0
+          AND status = 'PENDING'
+          AND event_at &gt; #{from}
+          AND event_at &lt;= #{to}
+          AND reminded_at IS NULL
+          AND remind_fail_count &lt; #{maxFail}
+    </update>
+
+    <!--
+      按抢占时间戳反查，而不是重查窗口：
+      抢占和查询之间用户可能新建了日程，重查窗口会把它算进来 ——
+      写进邮件却没被标记，下一小时又提醒一次。
+    -->
+    <select id="selectClaimedEvents" resultType="com.zest.mindforgeai.pojo.entity.JobEvent">
+        SELECT id, user_id, job_id, event_type, title, event_at, duration_minutes,
+               event_mode, location, note, status, reminded_at, remind_fail_count,
+               created_at, updated_at
+        FROM job_event
+        WHERE user_id = #{userId}
+          AND reminded_at = #{remindedAt}
+          AND deleted = 0
+        ORDER BY event_at
+    </select>
+
+    <!--
+      发信失败回滚：reminded_at 置回 NULL + 失败次数 +1。
+      ⚠️ 不能写成 remind_fail_count = #{maxFail} 之类的定值 ——
+         必须自增，否则多实例各自回滚一次会互相覆盖，永远到不了上限。
+    -->
+    <update id="resetReminder">
+        UPDATE job_event
+        SET reminded_at = NULL,
+            remind_fail_count = remind_fail_count + 1
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+</mapper>

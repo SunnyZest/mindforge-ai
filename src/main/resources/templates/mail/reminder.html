@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>日程提醒</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f5f7;">
+<!--
+  日程提醒邮件模板。
+
+  ★ 为什么全用内联 style 而不是 <style> 标签：QQ 邮箱、163、企业邮在列表页和部分
+    客户端里会把 <head> 里的样式直接丢掉，用 class 写的样式等于没写。
+    表格布局同理 —— 老客户端的 flex / grid 支持一塌糊涂。
+  ★ 占位符是「双花括号 + 字段名」，由 ReminderMailSender 做纯字符串替换，不引入模板引擎。
+    注意别在注释里写占位符字面量 —— 注释会原样发到用户邮箱里，而且替换不掉。
+-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+       style="background:#f4f5f7;padding:24px 12px;">
+    <tr>
+        <td align="center">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                   style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden;
+                          font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',
+                          'Hiragino Sans GB','Microsoft YaHei',sans-serif;color:#1f2329;">
+                <tr>
+                    <td style="padding:24px 28px 8px 28px;">
+                        <div style="font-size:13px;color:#8a9099;letter-spacing:1px;">MINDFORGE AI</div>
+                        <div style="font-size:20px;font-weight:600;margin-top:6px;">
+                            你有 {{count}} 项日程即将开始
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:8px 28px 0 28px;font-size:14px;line-height:1.7;color:#4e5969;">
+                        {{nickname}}，未来 {{aheadHours}} 小时内有以下安排，提前准备一下：
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:16px 28px 0 28px;">
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            {{items}}
+                        </table>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:24px 28px 4px 28px;">
+                        <a href="{{calendarUrl}}"
+                           style="display:inline-block;background:#1664ff;color:#ffffff;text-decoration:none;
+                                  font-size:14px;font-weight:500;padding:10px 22px;border-radius:6px;">
+                            打开日历查看
+                        </a>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:20px 28px 24px 28px;border-top:1px solid #eef0f3;">
+                        <div style="font-size:12px;line-height:1.7;color:#8a9099;">
+                            这封邮件由系统在日程开始前 {{aheadHours}} 小时自动发送。<br>
+                            不想再收到？到「个人资料」页关闭日程提醒开关即可，其他通知不受影响。
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+</html>

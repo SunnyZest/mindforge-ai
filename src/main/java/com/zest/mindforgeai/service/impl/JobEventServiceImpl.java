@@ -116,6 +116,7 @@ public class JobEventServiceImpl extends ServiceImpl<JobEventMapper, JobEvent> i
         JobEvent event = requireOwned(id);
         Long oldJobId = event.getJobId();
         Long jobId = resolveOwnedJobId(dto.getJobId());
+        boolean rescheduled = !Objects.equals(event.getEventAt(), dto.getEventAt());
 
         event.setJobId(jobId)
                 .setEventType(dto.getEventType().trim().toUpperCase())
@@ -129,6 +130,15 @@ public class JobEventServiceImpl extends ServiceImpl<JobEventMapper, JobEvent> i
                         ? dto.getStatus().trim().toUpperCase()
                         : STATUS_PENDING);
         updateById(event);
+
+        // 改期 = 一件新到期的待办，提醒要重新来过，否则「今天面完改到下周」就再也收不到提醒了。
+        // ⚠️ 必须显式 set(null)：updateById 的默认策略是 null 字段不进 SQL，清不掉旧值。
+        if (rescheduled) {
+            update(new LambdaUpdateWrapper<JobEvent>()
+                    .eq(JobEvent::getId, id)
+                    .set(JobEvent::getRemindedAt, null)
+                    .set(JobEvent::getRemindFailCount, 0));
+        }
 
         // 改过归属职位的话，两个职位的最早日程都可能变了
         syncNextActionAt(jobId);
@@ -283,6 +293,7 @@ public class JobEventServiceImpl extends ServiceImpl<JobEventMapper, JobEvent> i
         vo.setLocation(event.getLocation());
         vo.setNote(event.getNote());
         vo.setStatus(event.getStatus());
+        vo.setRemindedAt(event.getRemindedAt());
         vo.setCreatedAt(event.getCreatedAt());
         vo.setUpdatedAt(event.getUpdatedAt());
         if (event.getDurationMinutes() != null && event.getEventAt() != null) {

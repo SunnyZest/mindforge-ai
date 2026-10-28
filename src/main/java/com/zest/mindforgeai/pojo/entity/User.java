@@ -81,6 +81,16 @@ public class User implements Serializable {
     @Schema(description = "最后登录 IP")
     private String lastLoginIp;
 
+    /**
+     * 是否接收日程邮件提醒，默认开启。
+     * <p>
+     * ★ 默认 {@code 1} 而不是 {@code 0}：这是「本该有」的功能，不是营销邮件，
+     * 让用户主动去开等于大多数人永远收不到。但必须给出口 ——
+     * 没有退订开关的定时邮件，等于主动给用户一个投诉理由。
+     */
+    @Schema(description = "是否接收日程邮件提醒：0关闭 1开启")
+    private Integer reminderEnabled;
+
     @Schema(description = "创建时间")
     private LocalDateTime createdAt;
 

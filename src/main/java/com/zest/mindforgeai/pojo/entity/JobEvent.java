@@ -69,6 +69,30 @@ public class JobEvent implements Serializable {
     @Schema(description = "状态：PENDING 待进行 / DONE 已完成 / CANCELLED 已取消")
     private String status;
 
+    /**
+     * 已发提醒的时间，{@code null} 表示还没提醒过。
+     * <p>
+     * ★ 这个字段是<b>提醒幂等的唯一依据</b>，靠「抢占式更新」而不是「定时任务只跑一次」：
+     * <pre>UPDATE job_event SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL</pre>
+     * 受影响行数 = 1 的那一次才真正发信。多实例部署、任务重跑、运维手动触发，
+     * 都不会让用户收到两封一样的提醒。
+     * <p>
+     * ⚠️ 走自定义 XML 时记得 {@code deleted = 0} 要手写 —— 全局逻辑删除只对
+     * MyBatis-Plus 自己拼的 SQL 生效，XML 里的手写 SQL 它管不着。
+     */
+    @Schema(description = "已发提醒时间，null 表示未提醒")
+    private LocalDateTime remindedAt;
+
+    /**
+     * 提醒发送失败次数。发信失败时把 {@link #remindedAt} 置回 {@code null} 并 +1，
+     * 达到上限后不再重试。
+     * <p>
+     * ★ 为什么要这个字段：失败重试必须有终点。一个永久失效的邮箱如果无限重试，
+     * 每小时都会打一次 SMTP，日志里堆满同一条报错，真正的问题反而被淹掉。
+     */
+    @Schema(description = "提醒发送失败次数")
+    private Integer remindFailCount;
+
     @Schema(description = "创建时间")
     private LocalDateTime createdAt;
 

@@ -60,6 +60,9 @@ public class JobEventVO {
     @Schema(description = "状态：PENDING 待进行 / DONE 已完成 / CANCELLED 已取消")
     private String status;
 
+    @Schema(description = "已发邮件提醒的时间，null 表示还没提醒（前端可据此显示「已提醒」标记）")
+    private LocalDateTime remindedAt;
+
     @Schema(description = "创建时间")
     private LocalDateTime createdAt;
 

@@ -169,6 +169,24 @@ mindforge:
     refresh-token-cleanup-cron: 0 10 3 * * ?
     # 历史数据归档的 cron（默认每天 03:40，避开高峰与清理任务）
     data-archive-cron: 0 40 3 * * ?
+    # 日程主动提醒的 cron（默认每小时整点）。
+    # ⚠️ 不要改成「每天一次」：提前量固定 24 小时，一天只扫一次的话
+    #    「明天 15:00 的面试」要等到明天凌晨才进窗口，用户早上才看到，只剩几小时。
+    reminder-cron: 0 0 * * * ?
+
+  # 日程主动提醒（面试 / 笔试到点前发邮件）。
+  reminder:
+    # 提前多少小时提醒。只做一次，不做「提前 1 小时」——
+    # 一天收两封讲同一场面试的邮件，用户会直接去关开关。
+    ahead-hours: 24
+    # 同一封邮件最多重试几次，达到后放弃（对应 job_event.remind_fail_count）
+    max-fail: 3
+    # 发件人显示名。地址固定用 spring.mail.username（QQ 邮箱不允许伪造 From）
+    from-name: MindForge AI
+    # ⚠️ 生产必须改成真实域名，否则邮件里「打开日历」的链接指向 localhost，点开是空页面
+    site-url: ${MINDFORGE_SITE_URL:http://localhost:5173}
+    # 用户端日历所在路由（日历是「职位」页里的一个视图，没有独立路由）
+    calendar-path: /jobs
 
   # 调 Python AI 服务（Java → Python 方向）。
   # service-token 在 application-dev.yml 里配，和 Python 的 JAVA_SERVICE_TOKEN 一致。
