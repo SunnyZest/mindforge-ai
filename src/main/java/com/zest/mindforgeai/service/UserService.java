@@ -64,4 +64,21 @@ public interface UserService extends IService<User> {
 
     /** 查询用户的权限 code 列表（sys_user_role → sys_role_permission → sys_permission） */
     List<String> listPermissionCodes(Long userId);
+
+    /**
+     * 记录一次登录成功：更新 {@code user.last_login_at} 与 {@code user.last_login_ip}。
+     * <p>
+     * <b>为什么需要它</b>：这两个列一直存在、管理端也在读，但在此之前
+     * <b>没有任何代码写入过</b> —— 表现就是「最后登录时间」永远是 null。
+     * <p>
+     * ⚠️ 刻意<b>不</b>更新 {@code updated_at}：登录不是资料变更，
+     * 让它去改动 updated_at 会让「按更新时间排序 / 增量同步」这类逻辑被登录行为污染。
+     * MyBatis-Plus 的 {@code updateById} 只拼非 null 字段，所以这里只传 id + 两个登录字段即可。
+     * <p>
+     * 失败不影响登录主流程：这是旁路信息，写失败只记日志（不抛）。
+     *
+     * @param clientIp 客户端 IP，取 {@code ClientIpResolver.resolve(request)} 的结果；
+     *                 空值时只更新时间、不清空原有 IP
+     */
+    void touchLastLogin(Long userId, String clientIp);
 }

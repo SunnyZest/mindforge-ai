@@ -148,6 +148,10 @@ public class AdminAuthController {
                 AuditConstants.RESOURCE_USER, String.valueOf(user.getId()),
                 Map.of("username", user.getUsername(), "roles", roles));
 
+        // 记录最后登录时间与 IP。放在角色校验【之后】——
+        // 普通用户误登管理端入口不算「登录成功」，不该刷新这条记录。
+        userService.touchLastLogin(user.getId(), clientIp);
+
         log.info("管理员登录成功 userId={} username={} roles={}",
                 user.getId(), user.getUsername(), roles);
 

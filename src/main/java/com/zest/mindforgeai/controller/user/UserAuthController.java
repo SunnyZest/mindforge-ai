@@ -171,6 +171,9 @@ public class UserAuthController {
             loginAttemptService.recordSuccess(user.getEmail(), clientIp);
         }
 
+        // 记录最后登录时间与 IP —— last_login_at 以前只有读没有写，管理端列表里永远是 null
+        userService.touchLastLogin(user.getId(), clientIp);
+
         log.info("用户登录成功 userId={} username={} roles={} permissions={}",
                 user.getId(), user.getUsername(), roles, permissions.size());
 

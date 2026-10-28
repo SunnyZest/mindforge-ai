@@ -39,6 +39,9 @@ import java.util.Map;
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
 
+    /** user.last_login_ip 的列宽，写库前按它截断 */
+    private static final int MAX_IP_LEN = 64;
+
     private final PasswordEncoder passwordEncoder;
     private final UserRoleMapper userRoleMapper;
     private final RoleMapper roleMapper;
@@ -200,5 +203,44 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public List<String> listPermissionCodes(Long userId) {
         return permissionMapper.selectCodesByUserId(userId);
+    }
+
+    /**
+     * 只写 last_login_at / last_login_ip 两个列 —— 不碰 updated_at（登录不是资料变更，见接口注释）。
+     * <p>
+     * 吞掉异常：登录本身已经成功了，把「记录最后登录信息」失败放大成登录失败没有道理。
+     * 代价是这个列偶尔会落后一次，但那比登不进去好得多。
+     * <p>
+     * IP 为空时只更新时间：{@code updateById} 只拼非 null 字段，
+     * 所以传 null 的 lastLoginIp 不会把上一次记下来的 IP 清掉 —— 这正是想要的，
+     * 不能因为某次取不到 IP 就把历史线索抹掉。
+     */
+    @Override
+    public void touchLastLogin(Long userId, String clientIp) {
+        if (userId == null) {
+            return;
+        }
+        try {
+            updateById(new User()
+                    .setId(userId)
+                    .setLastLoginAt(LocalDateTime.now())
+                    .setLastLoginIp(truncateIp(clientIp)));
+        } catch (Exception e) {
+            log.error("更新最后登录信息失败 userId={}", userId, e);
+        }
+    }
+
+    /**
+     * IP 截断到列宽（64）。
+     * <p>
+     * 与 {@code AuditServiceImpl.truncate} 同一个理由：来源不可控的字符串写库前必须截断，
+     * 否则严格模式下是 SQL 报错，非严格模式下是静默截断 —— 后者更难查。
+     */
+    private String truncateIp(String clientIp) {
+        if (!StringUtils.hasText(clientIp)) {
+            return null;
+        }
+        String ip = clientIp.trim();
+        return ip.length() > MAX_IP_LEN ? ip.substring(0, MAX_IP_LEN) : ip;
     }
 }

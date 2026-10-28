@@ -68,6 +68,19 @@ public class User implements Serializable {
     @Schema(description = "最后登陆时间")
     private LocalDateTime lastLoginAt;
 
+    /**
+     * 最后登录 IP（只记成功登录那一次的）。
+     * <p>
+     * 长度 64 与 {@code sys_audit_log.ip_address} 保持一致：IPv6 最长 45 字符，
+     * 留出余量给「X-Forwarded-For 里带端口」这类脏值 —— 与其截断出错，不如存下来能看。
+     * <p>
+     * ⚠️ 这是<b>排障线索</b>，不是安全凭证：客户端可以伪造来源（未开
+     * {@code trust-forwarded-headers} 时取的是 TCP 来源地址，伪造不了；
+     * 开了之后依赖前面的代理如实覆盖写入）。判定「异地登录」只能当参考。
+     */
+    @Schema(description = "最后登录 IP")
+    private String lastLoginIp;
+
     @Schema(description = "创建时间")
     private LocalDateTime createdAt;
 
