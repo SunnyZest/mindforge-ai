@@ -15,6 +15,22 @@ spring:
       # 文档上传（PDF / DOCX）。Spring Boot 默认只有 1MB，不改会直接 413。
       max-file-size: 50MB
       max-request-size: 50MB
+
+  # 简历 PDF 导出用的模板引擎（见 ResumePdfService）。
+  # 项目里只有「简历导出」这一个 Thymeleaf 场景；所有 controller 都返回 Result
+  # 对象、不返回视图名，所以自动装配的 ViewResolver 对现有接口没有影响。
+  thymeleaf:
+    # ⚠️ 必须是 XML，不能是 HTML。
+    #    openhtmltopdf 用 XML 解析器读 XHTML，而 HTML 模式会把 <br /> 输出成 <br>、
+    #    把 <meta charset="UTF-8" /> 输出成 <meta charset="UTF-8">，
+    #    解析器直接报「元素类型必须由匹配的结束标记终止」。
+    #    模板因此要按良构 XML 写：空元素带斜杠，&nbsp; 要写成 &#160;。
+    mode: XML
+    encoding: UTF-8
+    prefix: classpath:/templates/
+    suffix: .html
+    # 解析结果缓存。生产开着省重复解析，开发时在 application-dev.yml 里关掉。
+    cache: true
   # Redis：限流计数、登录失败计数。
   # 实际连接信息在 application-dev.yml 的 mindforge.redis.* 里。
   data:

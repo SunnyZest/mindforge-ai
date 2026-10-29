@@ -10,11 +10,15 @@ import com.zest.mindforgeai.pojo.vo.ResumeOptimizeVO;
 import com.zest.mindforgeai.pojo.vo.ResumeParsedVO;
 import com.zest.mindforgeai.pojo.vo.ResumeVO;
 import com.zest.mindforgeai.service.AtsScoreService;
+import com.zest.mindforgeai.service.ResumePdfService;
 import com.zest.mindforgeai.service.ResumeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,6 +31,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.util.UriUtils;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * 用户端简历，路径对齐文档 §十九。
@@ -48,10 +55,13 @@ public class ResumeController {
 
     private final ResumeService resumeService;
     private final AtsScoreService atsScoreService;
+    private final ResumePdfService resumePdfService;
 
-    public ResumeController(ResumeService resumeService, AtsScoreService atsScoreService) {
+    public ResumeController(ResumeService resumeService, AtsScoreService atsScoreService,
+                            ResumePdfService resumePdfService) {
         this.resumeService = resumeService;
         this.atsScoreService = atsScoreService;
+        this.resumePdfService = resumePdfService;
     }
 
     @Operation(summary = "简历列表（分页）")
@@ -178,5 +188,43 @@ public class ResumeController {
     public Result<Void> delete(@PathVariable Long id) {
         resumeService.delete(id);
         return Result.success();
+    }
+
+    /**
+     * 导出简历 PDF（服务端渲染）。
+     * <p>
+     * 返回的是<b>二进制流</b>，不是 {@code Result} 信封 —— 这是全项目唯一一个
+     * 不走统一响应体的接口。前端因此不能用 {@code http.get()}（它会拆信封、
+     * 对 blob 响应抛 {@code code: undefined}），要用 {@code http.raw} 配
+     * {@code responseType: 'blob'}，并且错误分支也得自己解析 blob 里的 JSON。
+     * <p>
+     * ⚠️ 前置条件：简历<b>已解析过</b>。没解析时没有结构化数据，
+     * 拿原文硬渲出来是一坨纯文本，那正是这次改造要解决的问题。
+     * <p>
+     * 并发有上限（4），超出返回 42901。导出是 CPU 密集操作，
+     * 不限制的话几个人同时点就能拖慢整个服务。
+     */
+    @Operation(summary = "导出简历 PDF（服务端渲染）",
+            description = "返回 application/pdf 二进制流；简历未解析时 40001，并发打满 42901")
+    @GetMapping("/{id}/export")
+    @PreAuthorize("hasAuthority('app:resume:read')")
+    public ResponseEntity<byte[]> exportPdf(@PathVariable Long id) {
+        ResumePdfService.PdfFile pdf = resumePdfService.render(id);
+
+        // 手写而不是用 ContentDisposition.builder()：
+        // builder 的 .filename(ascii) 会被随后的 .filename(utf8, UTF_8) 覆盖掉，
+        // 最后只剩一个 RFC 2047 编码词（=?UTF-8?Q?...?=）——那是邮件头的写法，
+        // 浏览器虽然认，但不是我们想要的「ASCII 兜底 + RFC 5987」两段式。
+        String disposition = "attachment; filename=\"resume.pdf\"; filename*=UTF-8''"
+                + UriUtils.encodePathSegment(pdf.fileName(), StandardCharsets.UTF_8);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+                // 简历是个人隐私，不让浏览器和中间代理缓存
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .header("X-Content-Type-Options", "nosniff")
+                .contentLength(pdf.content().length)
+                .body(pdf.content());
     }
 }

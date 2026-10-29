@@ -34,6 +34,7 @@
         <knife4j>4.4.0</knife4j>
         <druid>1.2.24</druid>
         <aliyun-oss.version>3.18.5</aliyun-oss.version>
+        <openhtmltopdf.version>1.0.10</openhtmltopdf.version>
     </properties>
 
     <dependencies>
@@ -104,6 +105,37 @@
             <groupId>com.aliyun.oss</groupId>
             <artifactId>aliyun-sdk-oss</artifactId>
             <version>${aliyun-oss.version}</version>
+        </dependency>
+
+        <!--
+            简历 PDF 服务端导出：XHTML -> PDF。
+
+            选 openhtmltopdf 而不是无头 Chromium：纯 Java、无外部进程、
+            单次渲染几十毫秒级内存占用，2 核 2G 的 ECS 扛得住。
+            Chromium 常驻 300MB+，为了导出一份简历不值当。
+
+            ⚠️ 它只认 CSS 2.1 子集：没有 flex / grid / column-count。
+               布局只能用 table 或 float，模板里别照抄前端的 flex 写法。
+            ⚠️ 它用 XML 解析器读 HTML，模板必须是良构 XHTML：
+               <br> 要写 <br/>，&nbsp; 是未定义实体要写 &#160;。
+        -->
+        <dependency>
+            <groupId>com.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>${openhtmltopdf.version}</version>
+        </dependency>
+        <!--
+            模板引擎。只用来把结构化简历数据填进 XHTML，不用它的 MVC 视图解析
+            （所有 controller 都返回 Result 对象，不走视图名，自动装配的
+            ViewResolver 对我们无影响）。
+
+            ⚠️ 模板模式必须是 XML 而不是 HTML —— HTML 模式输出的 <br> 不带斜杠，
+               openhtmltopdf 会直接解析失败。配置见 application.yml 的
+               spring.thymeleaf.mode。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>

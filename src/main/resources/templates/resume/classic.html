@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<!--
+  简历 PDF 单栏模板（CLASSIC）。
+
+  ⚠️ 这个文件必须保持【良构 XML】，Thymeleaf 用 XML 模式解析它：
+     · 空元素要自闭合：<br/> <meta/> <hr/>
+     · 不能写 &nbsp;（XML 没这个实体），要写 &#160;
+     · 属性值必须带引号，标签必须闭合
+     否则 openhtmltopdf 会报「元素类型必须由匹配的结束标记终止」，
+     而且报错位置常常指向无关的行，很难查。
+
+  ⚠️ 布局只能用 table / float。openhtmltopdf 只认 CSS 2.1 子集：
+     没有 flex、没有 grid、没有 column-count。前端的 .entry-head 用的是
+     flex + justify-content: space-between，照抄过来会失效成一行挤在一起。
+
+  ⚠️ 只内嵌了 Regular 一个字重。font-weight: 700 由渲染器【合成粗体】
+     （笔画加宽），不是真的 Bold 字形 —— 够用，但别指望和设计稿一样。
+-->
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <title th:text="${r.docTitle}">个人简历</title>
+    <meta name="author" th:content="${r.name}"/>
+    <meta name="description" content="MindForge AI 导出的简历"/>
+    <style>
+        @page {
+            size: A4;
+            margin: 14mm 16mm;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            /* ★ 拉丁字体必须排在中文前面，顺序反了空格会变成 U+00A0（见 ResumePdfServiceImpl） */
+            font-family: 'ResumeLatin', 'ResumeCN';
+            font-size: 10.5pt;
+            line-height: 1.58;
+            color: #1f2329;
+        }
+
+        .header {
+            border-bottom: 2px solid #1f2329;
+            padding-bottom: 10px;
+            margin-bottom: 14px;
+        }
+
+        .header h1 {
+            margin: 0 0 6px;
+            font-size: 20pt;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .header .meta {
+            font-size: 9.5pt;
+            color: #4e5969;
+        }
+
+        .sec {
+            margin-bottom: 14px;
+        }
+
+        .sec-title {
+            margin: 0 0 8px;
+            padding-bottom: 3px;
+            font-size: 11.5pt;
+            font-weight: 700;
+            color: #1d2129;
+            border-bottom: 1px solid #d9d9d9;
+            letter-spacing: 0.5px;
+        }
+
+        .entry {
+            margin-bottom: 10px;
+            page-break-inside: avoid;
+        }
+
+        .entry-head {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 2px;
+        }
+
+        .entry-head td {
+            padding: 0;
+            vertical-align: baseline;
+        }
+
+        .entry-title {
+            font-weight: 700;
+            font-size: 10.5pt;
+        }
+
+        .entry-right {
+            text-align: right;
+            white-space: nowrap;
+            font-size: 9.5pt;
+            color: #4e5969;
+            padding-left: 12px;
+        }
+
+        .entry-desc {
+            margin: 0;
+            font-size: 10pt;
+            color: #272e3b;
+        }
+
+        .skills {
+            font-size: 10pt;
+            color: #272e3b;
+        }
+
+        .cert-list {
+            margin: 0;
+            padding-left: 0;
+            /* ⚠️ 必须关掉列表符号：默认的 disc 会回退到中文字体里的某个字形，
+               实测渲染成一个大实心三角，比正文还抢眼。用文本前缀「·」代替。 */
+            list-style: none;
+            font-size: 10pt;
+            color: #272e3b;
+        }
+
+        .cert-list li {
+            margin-bottom: 2px;
+        }
+
+        .para {
+            margin: 0;
+            font-size: 10pt;
+            color: #272e3b;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1 th:text="${r.name}">姓名</h1>
+    <div class="meta" th:if="${!#strings.isEmpty(r.metaLine)}" th:text="${r.metaLine}">联系方式</div>
+</div>
+
+<div class="sec" th:if="${!#strings.isEmpty(r.summary)}">
+    <div class="sec-title">个人总结</div>
+    <div class="para" th:text="${r.summary}">个人总结</div>
+</div>
+
+<div class="sec" th:if="${!#lists.isEmpty(r.skills)}">
+    <div class="sec-title">专业技能</div>
+    <div class="skills" th:text="${#strings.listJoin(r.skills, '、')}">技能</div>
+</div>
+
+<div class="sec" th:if="${!#lists.isEmpty(r.workExperience)}">
+    <div class="sec-title">工作经历</div>
+    <div class="entry" th:each="e : ${r.workExperience}">
+        <table class="entry-head">
+            <tr>
+                <td class="entry-title" th:text="${e.title}">公司 · 职位</td>
+                <td class="entry-right" th:if="${!#strings.isEmpty(e.right)}" th:text="${e.right}">时间</td>
+            </tr>
+        </table>
+        <div class="entry-desc" th:if="${!#strings.isEmpty(e.descHtml)}" th:utext="${e.descHtml}">描述</div>
+    </div>
+</div>
+
+<div class="sec" th:if="${!#lists.isEmpty(r.projects)}">
+    <div class="sec-title">项目经历</div>
+    <div class="entry" th:each="e : ${r.projects}">
+        <table class="entry-head">
+            <tr>
+                <td class="entry-title" th:text="${e.title}">项目 · 角色</td>
+                <td class="entry-right" th:if="${!#strings.isEmpty(e.right)}" th:text="${e.right}">技术栈</td>
+            </tr>
+        </table>
+        <div class="entry-desc" th:if="${!#strings.isEmpty(e.descHtml)}" th:utext="${e.descHtml}">描述</div>
+    </div>
+</div>
+
+<div class="sec" th:if="${!#lists.isEmpty(r.education)}">
+    <div class="sec-title">教育经历</div>
+    <div class="entry" th:each="e : ${r.education}">
+        <table class="entry-head">
+            <tr>
+                <td class="entry-title" th:text="${e.title}">学校 · 专业 · 学历</td>
+                <td class="entry-right" th:if="${!#strings.isEmpty(e.right)}" th:text="${e.right}">年份</td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+<div class="sec" th:if="${!#lists.isEmpty(r.certificates)}">
+    <div class="sec-title">证书与奖项</div>
+    <ul class="cert-list">
+        <li th:each="c : ${r.certificates}" th:text="|· ${c}|">证书</li>
+    </ul>
+</div>
+
+<div class="sec" th:if="${!#strings.isEmpty(r.selfEvaluation)}">
+    <div class="sec-title">自我评价</div>
+    <div class="para" th:text="${r.selfEvaluation}">自我评价</div>
+</div>
+
+</body>
+</html>
