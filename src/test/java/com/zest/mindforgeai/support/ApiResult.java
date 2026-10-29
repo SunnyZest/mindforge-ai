@@ -47,6 +47,27 @@ public record ApiResult(int httpStatus, JsonNode body) {
         return code() == 0;
     }
 
+    /**
+     * {@code data} 是否为空。
+     * <p>
+     * ★ <b>为什么必须用这个方法，不能写 {@code assertThat(res.data()).isNull()}</b>：
+     * 业务失败时后端返回的是 {@code "data": null}，Jackson 把它解析成
+     * {@link com.fasterxml.jackson.databind.node.NullNode} 这个<b>单例对象</b>，
+     * 不是 Java 的 {@code null}。于是断言会报出这条让人怀疑人生的消息：
+     * <pre>
+     * expected: null
+     *  but was: null
+     * </pre>
+     * 两个「null」根本不是一回事 —— 一个是 Java 引用，一个是 JSON 里的 null 节点。
+     * <p>
+     * 这里把两种空都收进来（key 不存在时 {@code data()} 返回 Java null，
+     * 显式 {@code null} 时返回 NullNode），断言侧只需问一次「空不空」。
+     */
+    public boolean isDataNull() {
+        JsonNode d = data();
+        return d == null || d.isNull();
+    }
+
     /** 取 data 下的一个字符串字段，缺失返回 null。 */
     public String str(String field) {
         JsonNode d = data();
