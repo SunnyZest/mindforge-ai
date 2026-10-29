@@ -3,6 +3,7 @@ package com.zest.mindforgeai.controller.admin;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.AiModelCreateDTO;
 import com.zest.mindforgeai.pojo.dto.AiModelUpdateDTO;
+import com.zest.mindforgeai.pojo.vo.AiEffectiveConfigVO;
 import com.zest.mindforgeai.pojo.vo.AiModelVO;
 import com.zest.mindforgeai.service.AdminAiModelService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -53,6 +54,27 @@ public class AdminAiModelController {
     @PreAuthorize("hasAuthority('admin:ai:manage')")
     public Result<List<AiModelVO>> list(@RequestParam(required = false) String scene) {
         return Result.success(adminAiModelService.listModels(scene));
+    }
+
+    /**
+     * 当前<b>真正生效</b>的配置 —— 列表接口答不出的那个问题。
+     * <p>
+     * ★ 列表只说明「配了哪些」，说明不了「在用哪个」：
+     * 某个用途有多条但都没勾默认时，生效的是 id 最大的那条；
+     * 一条都没配时走 .env，库里根本没有这条记录。两种情况下
+     * {@link #list} 都看不出来，排查只能去翻 {@code ai_usage_record.model_name}。
+     * <p>
+     * ⚠️ <b>路径不会和现有接口冲突</b>：本控制器没有 {@code GET /{id}}，
+     * 所以 {@code /effective} 不会被当成 id 吃掉。
+     * <p>
+     * ⚠️ Python 不可达时返回 50201（不是空列表）—— 「查不到」和「没有生效配置」
+     * 必须能区分，否则管理员会去配一个本来就有的模型。
+     */
+    @Operation(summary = "当前生效的 AI 配置（转发 Python 内存快照）")
+    @GetMapping("/effective")
+    @PreAuthorize("hasAuthority('admin:ai:manage')")
+    public Result<AiEffectiveConfigVO> effective() {
+        return Result.success(adminAiModelService.effectiveConfig());
     }
 
     @Operation(summary = "新增 AI 模型配置")

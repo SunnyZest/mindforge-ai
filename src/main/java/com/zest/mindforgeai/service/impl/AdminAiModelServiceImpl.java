@@ -2,6 +2,7 @@ package com.zest.mindforgeai.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.zest.mindforgeai.client.AiServiceClient;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.common.exception.BizException;
@@ -9,6 +10,7 @@ import com.zest.mindforgeai.mapper.SysAiModelMapper;
 import com.zest.mindforgeai.pojo.dto.AiModelCreateDTO;
 import com.zest.mindforgeai.pojo.dto.AiModelUpdateDTO;
 import com.zest.mindforgeai.pojo.entity.SysAiModel;
+import com.zest.mindforgeai.pojo.vo.AiEffectiveConfigVO;
 import com.zest.mindforgeai.pojo.vo.AiModelVO;
 import com.zest.mindforgeai.service.AdminAiModelService;
 import com.zest.mindforgeai.service.AuditService;
@@ -39,13 +41,16 @@ public class AdminAiModelServiceImpl implements AdminAiModelService {
     private final SysAiModelMapper aiModelMapper;
     private final AesCipher aesCipher;
     private final AuditService auditService;
+    private final AiServiceClient aiServiceClient;
 
     public AdminAiModelServiceImpl(SysAiModelMapper aiModelMapper,
                                    AesCipher aesCipher,
-                                   AuditService auditService) {
+                                   AuditService auditService,
+                                   AiServiceClient aiServiceClient) {
         this.aiModelMapper = aiModelMapper;
         this.aesCipher = aesCipher;
         this.auditService = auditService;
+        this.aiServiceClient = aiServiceClient;
     }
 
     @Override
@@ -240,5 +245,47 @@ public class AdminAiModelServiceImpl implements AdminAiModelService {
         // 只记「尾部 4 位」，用来确认改成了哪一把，泄漏了也没用
         detail.put("apiKeyHint", model.getApiKeyHint());
         return detail;
+    }
+
+    /**
+     * 当前生效配置 —— <b>纯转发</b>，一行计算都不做。
+     * <p>
+     * ⚠️ Python 不可达时<b>必须抛</b>，不能吞成空列表：
+     * 空列表的意思是「确实没有任何生效配置」，而真实情况是「查不到」。
+     * 这两种在管理端要给的提示完全不同（「去配一个模型」vs「先把 AI 服务起起来」），
+     * 混成一种前端就只能说「暂无数据」，管理员会往错的方向查。
+     * <p>
+     * 这里把 50401（连不上 / 超时）统一改成 50201 并换一句更直白的话：
+     * 这个接口唯一的失败原因就是 Python 没起来，前端提示「AI 服务不可用」就够了，
+     * 没必要让管理员去区分「超时」和「拒绝连接」。
+     */
+    @Override
+    public AiEffectiveConfigVO effectiveConfig() {
+        AiServiceClient.EffectiveConfigData data;
+        try {
+            data = aiServiceClient.effectiveConfig();
+        } catch (BizException e) {
+            log.warn("读取 AI 生效配置失败：{}", e.getMessage());
+            throw new BizException(ErrorCode.AI_SERVICE_ERROR,
+                    "读不到当前生效的 AI 配置：AI 服务不可用（Python 服务可能没启动）");
+        }
+
+        AiEffectiveConfigVO vo = new AiEffectiveConfigVO();
+        vo.setRefreshedAt(data.refreshedAt());
+        vo.setLastError(data.lastError());
+        vo.setScenes(data.scenes() == null
+                ? List.of()
+                : data.scenes().stream().map(AdminAiModelServiceImpl::toSceneVO).toList());
+        return vo;
+    }
+
+    private static AiEffectiveConfigVO.SceneVO toSceneVO(AiServiceClient.SceneConfig source) {
+        AiEffectiveConfigVO.SceneVO vo = new AiEffectiveConfigVO.SceneVO();
+        vo.setScene(source.scene());
+        vo.setModel(source.model());
+        vo.setSource(source.source());
+        vo.setBaseUrl(source.baseUrl());
+        vo.setHasKey(source.hasKey());
+        return vo;
     }
 }

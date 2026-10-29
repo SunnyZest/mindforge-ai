@@ -2,6 +2,7 @@ package com.zest.mindforgeai.service;
 
 import com.zest.mindforgeai.pojo.dto.AiModelCreateDTO;
 import com.zest.mindforgeai.pojo.dto.AiModelUpdateDTO;
+import com.zest.mindforgeai.pojo.vo.AiEffectiveConfigVO;
 import com.zest.mindforgeai.pojo.vo.AiModelVO;
 
 import java.util.List;
@@ -48,4 +49,21 @@ public interface AdminAiModelService {
      * 删掉配置的同时也删掉了里面的 Key 密文，不留一份还能解开的凭据。
      */
     void delete(Long id);
+
+    /**
+     * 当前<b>真正生效</b>的配置。
+     * <p>
+     * ★ <b>转发 Python 的内存快照，不在 Java 侧重算</b>。
+     * 生效规则是「缓存优先、没有就回退 .env」，而 .env 的模型名只有 Python 知道 ——
+     * Java 拿 {@code sys_ai_model} 重算一遍必然漂移，这种漂移最难查（两边都觉得自己对）。
+     * <p>
+     * 为什么列表接口不够用：某个用途有多条但都没勾默认时，生效的是 id 最大的那条；
+     * 某个用途一条都没配时走 .env，库里根本没有这条记录。这两种情况下
+     * {@link #listModels(String)} 都答不出「到底在用什么」。
+     * <p>
+     * ⚠️ Python 不可达时<b>抛异常</b>，不要返回空列表 ——
+     * 空列表的意思是「没有任何生效配置」，与「查不到」是两件事，
+     * 混在一起前端就没法给出正确提示了。
+     */
+    AiEffectiveConfigVO effectiveConfig();
 }

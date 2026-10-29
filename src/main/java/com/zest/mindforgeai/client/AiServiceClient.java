@@ -33,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * 调 Python AI 服务（Java → Python 方向）。
@@ -83,6 +84,7 @@ public class AiServiceClient {
     private static final String PATH_URL_EXTRACT = "/internal/ai/v1/tools/url-extract";
     private static final String PATH_INVITATION_EXTRACT = "/internal/ai/v1/calendar/extract-invitation";
     private static final String PATH_STATUS = "/internal/ai/v1/status";
+    private static final String PATH_CONFIG_EFFECTIVE = "/internal/ai/v1/config/effective";
 
     /** 状态探测的超时 —— 必须短，理由见 probeClient 字段 */
     private static final Duration PROBE_CONNECT_TIMEOUT = Duration.ofSeconds(2);
@@ -91,6 +93,10 @@ public class AiServiceClient {
     /** 邀约抽取的超时 —— 必须短于前端的 120 秒，理由见 invitationClient 字段 */
     private static final Duration INVITATION_CONNECT_TIMEOUT = Duration.ofSeconds(3);
     private static final Duration INVITATION_READ_TIMEOUT = Duration.ofSeconds(115);
+
+    /** 配置快照的超时 —— 读的是 Python 内存里的 dict，5 秒都算宽松，理由见 configClient 字段 */
+    private static final Duration CONFIG_CONNECT_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration CONFIG_READ_TIMEOUT = Duration.ofSeconds(5);
 
     /** SSE 里数据行的前缀（Python 侧格式是 {@code data: {json}}） */
     private static final String SSE_DATA_PREFIX = "data:";
@@ -122,6 +128,19 @@ public class AiServiceClient {
      * 前端拿到的是能展示的文案，而不是自己断连。
      */
     private final RestClient invitationClient;
+
+    /**
+     * 配置快照专用客户端。
+     * <p>
+     * ★ <b>为什么不复用 {@link #restClient}</b>：那个读超时是 660 秒（等模型生成用的）。
+     * 而「当前生效配置」读的是 Python 内存里的一个 dict，正常耗时是毫秒级。
+     * 用 660 秒的话，Python 一旦卡住，管理端那个页面会一直转圈，
+     * 管理员会以为「接口没做」而不是「Python 挂了」。
+     * <p>
+     * 5 秒的取法：内存快照本身没有 IO，5 秒足够覆盖 GC / 线程调度抖动；
+     * 真超过 5 秒，那一定是 Python 出了问题，早点报错比干等有用。
+     */
+    private final RestClient configClient;
 
     private final ObjectMapper objectMapper;
 
@@ -160,6 +179,18 @@ public class AiServiceClient {
         this.invitationClient = RestClient.builder()
                 .baseUrl(properties.getBaseUrl())
                 .requestFactory(invitationFactory)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .defaultHeader(HEADER_SERVICE_TOKEN, properties.getServiceToken())
+                .build();
+
+        // 配置快照用的短超时客户端（理由见 configClient 字段的注释）
+        SimpleClientHttpRequestFactory configFactory = new SimpleClientHttpRequestFactory();
+        configFactory.setConnectTimeout((int) CONFIG_CONNECT_TIMEOUT.toMillis());
+        configFactory.setReadTimeout((int) CONFIG_READ_TIMEOUT.toMillis());
+
+        this.configClient = RestClient.builder()
+                .baseUrl(properties.getBaseUrl())
+                .requestFactory(configFactory)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .defaultHeader(HEADER_SERVICE_TOKEN, properties.getServiceToken())
                 .build();
@@ -513,6 +544,36 @@ public class AiServiceClient {
         return envelope.data();
     }
 
+    /**
+     * 当前<b>真正生效</b>的 AI 配置快照（管理端「当前生效」展示用）。
+     * <p>
+     * ★ <b>这是转发，不是计算</b>：生效规则是 Python 侧的
+     * {@code ai_config.get()}（{@code 缓存优先，没有就回退 .env}），
+     * 而且 .env 里的模型名只有 Python 看得见。Java 这边<b>不要</b>拿
+     * {@code sys_ai_model} 自己算一遍 —— 两套逻辑必然漂移，
+     * 而这种漂移最难查（两边都觉得自己对）。
+     * <p>
+     * ★ 解决的两个「管理端看不出来」的坑：
+     * <ol>
+     *   <li>某个用途有多条配置但都没勾默认时，实际生效的是 <b>id 最大</b>的那条；</li>
+     *   <li>某个用途一条都没配时，实际走 <b>.env</b>，管理端完全看不到。</li>
+     * </ol>
+     * 这两种情况下列表都答不出「到底在用什么」，只能去翻
+     * {@code ai_usage_record.model_name}。
+     * <p>
+     * ⚠️ 响应里<b>不含任何 api_key</b>，只有 {@code hasKey} 布尔。
+     * <p>
+     * ⚠️ 走 {@link #configClient}（5 秒），不是 660 秒的主客户端。
+     *
+     * @throws BizException AI_SERVICE_ERROR / AI_SERVICE_TIMEOUT（Python 没起来时）
+     */
+    public EffectiveConfigData effectiveConfig() {
+        AiEnvelope<EffectiveConfigData> envelope = get(configClient, PATH_CONFIG_EFFECTIVE,
+                new ParameterizedTypeReference<>() {
+                });
+        return envelope.data();
+    }
+
     // ---------- 内部 ----------
 
     /**
@@ -533,22 +594,49 @@ public class AiServiceClient {
     /**
      * 同 {@link #post(String, Object, ParameterizedTypeReference)}，但指定用哪个客户端。
      * <p>
-     * 只有超时预算不同的接口需要（状态探测 / 邀约抽取各有一个专用客户端）。
+     * 只有超时预算不同的接口需要（状态探测 / 邀约抽取 / 配置快照各有一个专用客户端）。
      * 其余接口一律走主客户端，别为了「顺手」把慢接口也换成短超时的那个。
      */
     private <T> AiEnvelope<T> post(RestClient client, String path, Object body,
                                    ParameterizedTypeReference<AiEnvelope<T>> typeRef) {
+        return call(path, () -> client.post()
+                .uri(path)
+                // ⚠️ traceId 必须用【请求级】header 带过去，不能放进 defaultHeader ——
+                //    defaultHeader 在构造时求值一次，而 traceId 是每个请求一个（ThreadLocal），
+                //    那样只会带上一串 null。
+                .header(HEADER_TRACE_ID, currentTraceId())
+                .header(HEADER_USER_ID, currentUserId())
+                .body(body)
+                .retrieve()
+                .body(typeRef));
+    }
+
+    /**
+     * GET 版本。目前只有「配置快照」这类纯读接口用得上。
+     * <p>
+     * 和 {@link #post} 共用 {@link #call} 的异常翻译 —— 两个分支各写一遍的话，
+     * 迟早会出现「同一个 Python 错误码，POST 翻成 42201、GET 翻成 50201」这种事。
+     */
+    private <T> AiEnvelope<T> get(RestClient client, String path,
+                                  ParameterizedTypeReference<AiEnvelope<T>> typeRef) {
+        return call(path, () -> client.get()
+                .uri(path)
+                .header(HEADER_TRACE_ID, currentTraceId())
+                .header(HEADER_USER_ID, currentUserId())
+                .retrieve()
+                .body(typeRef));
+    }
+
+    /**
+     * 发请求 + 统一校验信封 + 统一翻译异常。
+     * <p>
+     * 抽成「传一个 Supplier 进来」而不是把两种 HTTP 方法各写一遍 try/catch：
+     * 这里的 catch 分支有 5 个，每个都对应一次真实踩坑（见各分支注释），
+     * 复制两份必然有一份先腐烂。
+     */
+    private <T> AiEnvelope<T> call(String path, Supplier<AiEnvelope<T>> request) {
         try {
-            AiEnvelope<T> envelope = client.post()
-                    .uri(path)
-                    // ⚠️ traceId 必须用【请求级】header 带过去，不能放进 defaultHeader ——
-                    //    defaultHeader 在构造时求值一次，而 traceId 是每个请求一个（ThreadLocal），
-                    //    那样只会带上一串 null。
-                    .header(HEADER_TRACE_ID, currentTraceId())
-                    .header(HEADER_USER_ID, currentUserId())
-                    .body(body)
-                    .retrieve()
-                    .body(typeRef);
+            AiEnvelope<T> envelope = request.get();
 
             if (envelope == null) {
                 throw new BizException(ErrorCode.AI_SERVICE_ERROR, "AI 服务返回了空响应");
@@ -1129,5 +1217,46 @@ public class AiServiceClient {
                                  String interviewer,
                                  String note,
                                  Map<String, String> evidence) {
+    }
+
+    // ---------- AI 配置快照 ----------
+
+    /**
+     * 当前生效的 AI 配置（Python 侧 {@code ai_config.snapshot()} 的原样结构）。
+     * <p>
+     * ⚠️ {@code refreshedAt} 是 <b>ISO 带时区</b>的字符串（{@code +08:00}），
+     * 刻意当 {@code String} 透传而不转 {@code OffsetDateTime} ——
+     * 它是给人看的「上次同步时间」，转一道只会多一次格式化，
+     * 而且全局时间格式约定（{@code yyyy-MM-ddTHH:mm:ss}）不带偏移，
+     * 把偏移吃掉反而丢信息。
+     *
+     * @param scenes      每个用途一条，<b>没配的也会出现</b>（{@code source = "env"}）
+     * @param refreshedAt 上一次成功拉取 Java 配置的时间；从没成功过为 null
+     * @param lastError   上一次拉取失败的原因，成功时 null
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record EffectiveConfigData(List<SceneConfig> scenes,
+                                      String refreshedAt,
+                                      String lastError) {
+    }
+
+    /**
+     * 单个用途的生效配置。
+     * <p>
+     * ⚠️ 只有 {@code hasKey} 布尔，<b>没有 apiKey</b> —— Python 侧也不返回，
+     * 这里当然也就没有可接的字段。别为了「方便排查」去加一个。
+     *
+     * @param scene   CHAT / EMBEDDING / RERANK
+     * @param model   生效的模型名；空串表示「未配置」（RERANK 没有 .env 兜底）
+     * @param source  {@code java} = 来自管理端配置；{@code env} = 回退 .env
+     * @param baseUrl 生效的 base url
+     * @param hasKey  有没有可用的 Key
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SceneConfig(String scene,
+                              String model,
+                              String source,
+                              String baseUrl,
+                              Boolean hasKey) {
     }
 }
