@@ -33,17 +33,35 @@ public class JwtUtil {
     /**
      * 签发 Access Token。
      * 文档 §5.2：sub 放 userId，username / roles 作为独立 claim
+     *
+     * @param sessionId 会话 id；为 null 时不写该 claim（登录设备列表里会显示成「未知会话」）
      */
-    public String generateAccessToken(Long userId, String username, List<String> roles) {
+    public String generateAccessToken(Long userId, String username, List<String> roles,
+                                      Long sessionId) {
         Date now = new Date();
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim(JwtConstants.CLAIM_USERNAME, username)
-                .claim(JwtConstants.CLAIM_ROLES, roles)
+                .claim(JwtConstants.CLAIM_ROLES, roles);
+        if (sessionId != null) {
+            builder.claim(JwtConstants.CLAIM_SESSION_ID, String.valueOf(sessionId));
+        }
+        return builder
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + accessExpireMs))
                 .signWith(key)
                 .compact();
+    }
+
+    /**
+     * 取会话 id。
+     * <p>
+     * ⚠️ 存量 token 没有这个 claim，返回 null —— 调用方必须能处理 null，
+     * 不能直接拿去和 sessionId 比较。
+     */
+    public Long extractSessionId(String token) {
+        String sid = parse(token).get(JwtConstants.CLAIM_SESSION_ID, String.class);
+        return sid == null ? null : Long.valueOf(sid);
     }
 
     /** Access Token 有效期（秒），对应文档的 expiresIn */

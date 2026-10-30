@@ -1,7 +1,9 @@
 package com.zest.mindforgeai.controller.user;
 
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.SessionConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.pojo.dto.ChangePasswordDTO;
@@ -12,6 +14,7 @@ import com.zest.mindforgeai.pojo.dto.ResetPasswordDTO;
 import com.zest.mindforgeai.pojo.dto.SendVerificationCodeDTO;
 import com.zest.mindforgeai.pojo.entity.User;
 import com.zest.mindforgeai.pojo.vo.LoginVO;
+import com.zest.mindforgeai.pojo.vo.SessionVO;
 import com.zest.mindforgeai.pojo.vo.TokenVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.security.LoginUser;
@@ -28,6 +31,7 @@ import com.zest.mindforgeai.utils.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpHeaders;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +40,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -177,9 +183,17 @@ public class UserAuthController {
         log.info("用户登录成功 userId={} username={} roles={} permissions={}",
                 user.getId(), user.getUsername(), roles, permissions.size());
 
+        // ★ 一次登录 = 一个会话。sessionId 同时写进 refresh token 行和 access token 的
+        //   sid claim：「我的登录设备」靠它把同一台设备的多次轮转聚成一行，
+        //   也能标出哪一行是当前这台。
+        Long sessionId = IdWorker.getId();
+
         LoginVO vo = new LoginVO();
-        vo.setAccessToken(jwtUtil.generateAccessToken(user.getId(), user.getUsername(), roles));
-        vo.setRefreshToken(refreshTokenService.issue(user.getId()));
+        vo.setAccessToken(jwtUtil.generateAccessToken(
+                user.getId(), user.getUsername(), roles, sessionId));
+        vo.setRefreshToken(refreshTokenService.issue(
+                user.getId(), sessionId, SessionConstants.END_APP,
+                clientIp, request.getHeader(HttpHeaders.USER_AGENT)));
         vo.setExpiresIn(jwtUtil.getAccessExpireSeconds());
         vo.setUser(UserInfoVO.of(user, roles, permissions));
         return Result.success(vo);
@@ -239,7 +253,9 @@ public class UserAuthController {
         log.debug("刷新 access token userId={} username={}", result.userId(), user.getUsername());
 
         TokenVO vo = new TokenVO();
-        vo.setAccessToken(jwtUtil.generateAccessToken(user.getId(), user.getUsername(), roles));
+        // 会话 id 从 refresh 结果里继承（轮转不换会话），否则刷新一次就多一条设备
+        vo.setAccessToken(jwtUtil.generateAccessToken(
+                user.getId(), user.getUsername(), roles, result.sessionId()));
         vo.setRefreshToken(result.refreshToken());
         vo.setExpiresIn(jwtUtil.getAccessExpireSeconds());
         return Result.success(vo);
@@ -287,5 +303,49 @@ public class UserAuthController {
     public Result<com.zest.mindforgeai.pojo.vo.ConfirmTokenVO> issueConfirmToken(
             @Valid @RequestBody com.zest.mindforgeai.pojo.dto.ConfirmTokenRequestDTO dto) {
         return Result.success(secondaryConfirmService.issueConfirmToken(dto.getPassword()));
+    }
+
+    // ==================== 登录设备（会话）管理 ====================
+
+    @Operation(summary = "我的登录设备",
+            description = "列出当前账号在用户端存活的会话，每个会话一行；current=true 表示本机")
+    @GetMapping("/sessions")
+    public Result<List<SessionVO>> listSessions() {
+        return Result.success(refreshTokenService.listSessions(
+                SecurityUtils.getUserId(),
+                SessionConstants.END_APP,
+                SecurityUtils.getCurrentSessionId()));
+    }
+
+    /**
+     * 踢掉一台设备。
+     * <p>
+     * 只作用于用户端：管理端的会话不在这里出现，也不会被这里踢掉 ——
+     * 两端是独立的权限空间，在用户端点「退出其他设备」把后台也踢了会让人莫名其妙。
+     */
+    @Operation(summary = "踢掉指定登录设备",
+            description = "只作用于用户端；会话不存在或不属于自己返回 40402")
+    @DeleteMapping("/sessions/{sessionId}")
+    public Result<Void> revokeSession(@PathVariable Long sessionId) {
+        boolean revoked = refreshTokenService.revokeSession(SecurityUtils.getUserId(), sessionId);
+        if (!revoked) {
+            // 刻意用「不存在」而不是「无权」：403 等于告诉对方「这个会话 id 是存在的」，
+            // 和项目里其它越权场景的处理保持一致（文档 §4.9）
+            throw new BizException(ErrorCode.RESOURCE_NOT_FOUND, "会话不存在或已失效");
+        }
+        log.info("踢掉登录设备 userId={} sessionId={}", SecurityUtils.getUserId(), sessionId);
+        return Result.success();
+    }
+
+    @Operation(summary = "退出其他所有设备",
+            description = "保留当前会话，踢掉用户端其余全部会话；返回踢掉的条数")
+    @PostMapping("/sessions/revoke-others")
+    public Result<Integer> revokeOtherSessions() {
+        int count = refreshTokenService.revokeOthers(
+                SecurityUtils.getUserId(),
+                SessionConstants.END_APP,
+                SecurityUtils.getCurrentSessionId());
+        log.info("退出其他设备 userId={} 踢掉 {} 条", SecurityUtils.getUserId(), count);
+        return Result.success(count);
     }
 }

@@ -1,7 +1,9 @@
 package com.zest.mindforgeai.controller.admin;
 
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.zest.mindforgeai.common.constant.AuditConstants;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.SessionConstants;
 import com.zest.mindforgeai.common.constant.RoleConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.common.result.Result;
@@ -10,6 +12,7 @@ import com.zest.mindforgeai.pojo.dto.LoginDTO;
 import com.zest.mindforgeai.pojo.dto.RefreshTokenDTO;
 import com.zest.mindforgeai.pojo.entity.User;
 import com.zest.mindforgeai.pojo.vo.LoginVO;
+import com.zest.mindforgeai.pojo.vo.SessionVO;
 import com.zest.mindforgeai.pojo.vo.TokenVO;
 import com.zest.mindforgeai.pojo.vo.UserInfoVO;
 import com.zest.mindforgeai.security.LoginUser;
@@ -25,6 +28,7 @@ import com.zest.mindforgeai.utils.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpHeaders;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +38,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -155,9 +161,15 @@ public class AdminAuthController {
         log.info("管理员登录成功 userId={} username={} roles={}",
                 user.getId(), user.getUsername(), roles);
 
+        // 同用户端：一次登录一个会话，sessionId 同时写进 refresh token 和 sid claim
+        Long sessionId = IdWorker.getId();
+
         LoginVO vo = new LoginVO();
-        vo.setAccessToken(jwtUtil.generateAccessToken(user.getId(), user.getUsername(), roles));
-        vo.setRefreshToken(refreshTokenService.issue(user.getId()));
+        vo.setAccessToken(jwtUtil.generateAccessToken(
+                user.getId(), user.getUsername(), roles, sessionId));
+        vo.setRefreshToken(refreshTokenService.issue(
+                user.getId(), sessionId, SessionConstants.END_ADMIN,
+                clientIp, request.getHeader(HttpHeaders.USER_AGENT)));
         vo.setExpiresIn(jwtUtil.getAccessExpireSeconds());
         vo.setUser(UserInfoVO.of(user, roles,
                 userService.listPermissionCodes(user.getId())));
@@ -212,7 +224,8 @@ public class AdminAuthController {
                 result.userId(), user.getUsername());
 
         TokenVO vo = new TokenVO();
-        vo.setAccessToken(jwtUtil.generateAccessToken(user.getId(), user.getUsername(), roles));
+        vo.setAccessToken(jwtUtil.generateAccessToken(
+                user.getId(), user.getUsername(), roles, result.sessionId()));
         vo.setRefreshToken(result.refreshToken());
         vo.setExpiresIn(jwtUtil.getAccessExpireSeconds());
         return Result.success(vo);
@@ -253,5 +266,47 @@ public class AdminAuthController {
         String clientIp = ipResolver.resolve(request);
         userProfileService.changePassword(dto, clientIp);
         return Result.success();
+    }
+
+    // ==================== 登录设备（会话）管理 ====================
+
+    @Operation(summary = "我的登录设备（管理端）",
+            description = "列出当前管理员账号在管理端存活的会话；current=true 表示本机")
+    @GetMapping("/sessions")
+    public Result<List<SessionVO>> listSessions() {
+        return Result.success(refreshTokenService.listSessions(
+                SecurityUtils.getUserId(),
+                SessionConstants.END_ADMIN,
+                SecurityUtils.getCurrentSessionId()));
+    }
+
+    /**
+     * 踢掉一台后台设备。
+     * <p>
+     * 只作用于管理端。管理端的会话比用户端敏感得多（能改配置、能删数据），
+     * 所以这里建议前端在界面上把「最近活跃时间」和 IP 都显眼地展示出来。
+     */
+    @Operation(summary = "踢掉指定后台设备",
+            description = "只作用于管理端；会话不存在或不属于自己返回 40402")
+    @DeleteMapping("/sessions/{sessionId}")
+    public Result<Void> revokeSession(@PathVariable Long sessionId) {
+        boolean revoked = refreshTokenService.revokeSession(SecurityUtils.getUserId(), sessionId);
+        if (!revoked) {
+            throw new BizException(ErrorCode.RESOURCE_NOT_FOUND, "会话不存在或已失效");
+        }
+        log.info("踢掉后台登录设备 userId={} sessionId={}", SecurityUtils.getUserId(), sessionId);
+        return Result.success();
+    }
+
+    @Operation(summary = "退出其他所有后台设备",
+            description = "保留当前会话，踢掉管理端其余全部会话；返回踢掉的条数")
+    @PostMapping("/sessions/revoke-others")
+    public Result<Integer> revokeOtherSessions() {
+        int count = refreshTokenService.revokeOthers(
+                SecurityUtils.getUserId(),
+                SessionConstants.END_ADMIN,
+                SecurityUtils.getCurrentSessionId());
+        log.info("退出其他后台设备 userId={} 踢掉 {} 条", SecurityUtils.getUserId(), count);
+        return Result.success(count);
     }
 }

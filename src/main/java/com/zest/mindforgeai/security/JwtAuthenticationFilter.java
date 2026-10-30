@@ -2,6 +2,7 @@ package com.zest.mindforgeai.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.SessionConstants;
 import com.zest.mindforgeai.common.constant.WebConstants;
 import com.zest.mindforgeai.common.result.Result;
 import com.zest.mindforgeai.utils.JwtUtil;
@@ -66,6 +67,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // 3. 用 userId 加载用户：userId 永不变，token 不受用户名变更影响
         Long userId = jwtUtil.extractUserId(token);
+
+        // 顺手把会话 id 挂到 request 上：「我的登录设备」接口要拿它标出「本机」。
+        // 老 token（加 sid claim 之前签发的）这里是 null，读的地方必须能处理。
+        request.setAttribute(SessionConstants.SESSION_ID_ATTR, jwtUtil.extractSessionId(token));
 
         if (userId != null
                 && SecurityContextHolder.getContext().getAuthentication() == null) {

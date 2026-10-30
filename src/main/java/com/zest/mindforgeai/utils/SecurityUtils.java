@@ -1,10 +1,13 @@
 package com.zest.mindforgeai.utils;
 
 import com.zest.mindforgeai.common.constant.ErrorCode;
+import com.zest.mindforgeai.common.constant.SessionConstants;
 import com.zest.mindforgeai.common.exception.BizException;
 import com.zest.mindforgeai.security.LoginUser;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * 当前登录用户工具。
@@ -54,5 +57,24 @@ public final class SecurityUtils {
             return null;
         }
         return authentication.getPrincipal() instanceof LoginUser loginUser ? loginUser : null;
+    }
+
+    /**
+     * 当前请求所属的会话 id。
+     * <p>
+     * 由 {@code JwtAuthenticationFilter} 解析 token 时写进 request 属性。
+     * <p>
+     * ⚠️ <b>可能返回 null</b>：存量 token（加 sid claim 之前签发的）没有这个信息，
+     * 内部接口（走 X-Service-Token，不经过 JWT 过滤器）也没有。
+     * 调用方拿到 null 时要退化成「无法判断哪条是本机」，而不是报错。
+     */
+    public static Long getCurrentSessionId() {
+        ServletRequestAttributes attributes =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null) {
+            return null;
+        }
+        Object value = attributes.getRequest().getAttribute(SessionConstants.SESSION_ID_ATTR);
+        return value instanceof Long sessionId ? sessionId : null;
     }
 }
