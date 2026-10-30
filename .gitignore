@@ -53,9 +53,19 @@ application-local.yaml
 application-local.properties
 application.properties
 # 本地文档与 schema —— 只在本地维护，不进版本库
-# （用户约定：API 文档、建表 sql、说明.txt 留本地）
+# （用户约定：API 文档、说明.txt 留本地）
 # 用 **/ 前缀匹配任意层级 —— 这些文件散落在项目根目录和 worktree 里
+#
+# ⚠️ 建表 sql 例外：只有两份【正式文件】进版本库 ——
+#      mindforge-schema.sql        空库一键建库（33 张表 + 种子数据）
+#      mindforge-增量变更.sql      老库升级（唯一一份变更历史）
+#    理由：别人 clone 下来必须能建库，否则 README 的「快速开始」是假的。
+#    下面两条 ! 把它们从上面的通配规则里捞回来。
+#    早期设计稿（mindforge-schema-双前端单后端-RBAC.sql）和分表脚本
+#    （mindforge-业务表建表语句.sql）已被取代，继续留本地、不提交。
 **/mindforge-*.sql
+!/mindforge-schema.sql
+!/mindforge-增量变更.sql
 **/说明.txt
 
 # ★ md 文档里【只有 README.md 进版本库】—— 其余（部署手册 / 路线图 / API 文档…）

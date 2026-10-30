@@ -147,7 +147,15 @@ public class RecycleBinCleanupTask {
     /**
      * 兜底建表 —— 与 DataArchiveServiceImpl 的做法一致。
      *
-     * <p>dev 库可能是旧的、没有这张表；schema 里虽然有，但建表失败不该让整个任务报错。
+     * <p><b>建表语句已经在 {@code mindforge-schema.sql} 里了</b>（第 33 张表），
+     * 新建的库不需要这里兜底。留着的唯一理由：给「schema 版本比代码旧」的库
+     * （比如线上还没跑最新建表脚本）兜一次底，避免清理任务因为缺表整个失败。
+     *
+     * <p>{@code IF NOT EXISTS} 是幂等的，正常情况下一句 DDL 都不会执行。
+     * 建表失败只打 WARN 不抛异常 —— 归档表建不出来不该让回收站清理停摆。
+     *
+     * <p>⚠️ 改这张表的结构时，下面这段 DDL 和 {@code mindforge-schema.sql} 里的
+     * {@code deleted_data_archive} 要一起改，否则新库（schema 建的）和老库（这里建的）会不一样。
      */
     private void ensureArchiveTable() {
         try {
