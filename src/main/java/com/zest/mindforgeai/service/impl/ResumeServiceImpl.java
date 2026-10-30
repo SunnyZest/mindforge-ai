@@ -51,6 +51,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -430,11 +431,22 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, Resume> impleme
         return fileId == null ? null : fileService.getById(fileId);
     }
 
-    /** 批量查文件记录，返回 fileId → SysFile 的映射 */
+    /**
+     * 批量查文件记录，返回 fileId → SysFile 的映射。
+     * <p>
+     * ⚠️ <b>空集合必须用 {@link Collections#emptyMap()}，不能用 {@code Map.of()}</b>：
+     * {@code Map.of()} 返回的是不可变 Map，它的 {@code get(null)} 会直接抛
+     * NullPointerException（不可变集合禁止 null 键，连查询都不行）。
+     * 而调用方是 {@code fileMap.get(resume.getFileId())} —— 简历的 {@code file_id}
+     * 允许为空（表注释写了「手工录入时为空」），一旦碰上就是整页 500。
+     * <p>
+     * 这个问题是 2026-10-30 本地压测用「file_id 为 NULL」的造数跑出来的：
+     * 列表接口 500 了 500 次，堆栈落在 {@code pageResumes} 的 map 调用上。
+     */
     private Map<Long, SysFile> loadFiles(List<Long> fileIds) {
         List<Long> ids = fileIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
         if (ids.isEmpty()) {
-            return Map.of();
+            return Collections.emptyMap();
         }
         return fileService.listByIds(ids).stream()
                 .collect(Collectors.toMap(SysFile::getId, Function.identity(), (a, b) -> a));

@@ -86,6 +86,34 @@ class ResumeApiTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("整页简历都没有关联文件时列表不报错（file_id 为 NULL）")
+    void listToleratesResumesWithoutFile() {
+        // 手工录入的简历没有原始文件，file_id 是 NULL（表注释写了这个场景）。
+        // 曾经的实现用 Map.of() 兜底，而不可变 Map 的 get(null) 直接抛 NPE ——
+        // 表现是列表整页 500，堆栈落在 pageResumes 的 map 调用上。
+        // 2026-10-30 本地压测用这种造数跑出来的，改成 Collections.emptyMap()。
+        //
+        // ⚠️ 必须用一个【只有 NULL file_id 简历】的账号：只要页面上有一条带文件的，
+        //    loadFiles 就会走查库那条分支，这个坑就绕过去了，测不到。
+        Long ownerId = createAccount("t_nofile");
+        jdbc.update("""
+                INSERT INTO resume (id, user_id, file_id, name, parse_status, status,
+                                    created_at, updated_at, deleted)
+                VALUES (?, ?, NULL, ?, 'PENDING', 1, NOW(), NOW(), 0)
+                """, 999000000000000001L, ownerId, "手工录入的简历");
+
+        String ownerToken = loginRaw("/app/auth/login", "t_nofile", TEST_PASSWORD)
+                .assertSuccess().str("accessToken");
+
+        ApiResult result = get("/app/resumes?page=1&pageSize=10", ownerToken)
+                .assertSuccess().assertCamelCase();
+        assertThat(result.data().get("total").asLong()).isEqualTo(1);
+        // fileId 为 null 时字段被整体省略（全局 Jackson 配置不含 null），
+        // 所以不能用 get("fileId").isNull() —— 那样会拿到 Java null 再 NPE
+        assertThat(result.data().get("records").get(0).hasNonNull("fileId")).isFalse();
+    }
+
+    @Test
     @DisplayName("详情能取到自己的简历")
     void detailOfOwnResume() {
         get("/app/resumes/" + resumeId, token).assertSuccess().assertCamelCase();
