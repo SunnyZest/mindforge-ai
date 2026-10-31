@@ -5,8 +5,10 @@ import com.zest.mindforgeai.pojo.vo.PageResultVO;
 import com.zest.mindforgeai.pojo.vo.RecycleBinVO;
 import com.zest.mindforgeai.pojo.vo.RecycleRestoreResultVO;
 import com.zest.mindforgeai.service.RecycleBinService;
+import com.zest.mindforgeai.service.SecondaryConfirmService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -35,9 +37,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class RecycleBinController {
 
     private final RecycleBinService recycleBinService;
+    private final SecondaryConfirmService secondaryConfirmService;
 
-    public RecycleBinController(RecycleBinService recycleBinService) {
+    public RecycleBinController(RecycleBinService recycleBinService,
+                                SecondaryConfirmService secondaryConfirmService) {
         this.recycleBinService = recycleBinService;
+        this.secondaryConfirmService = secondaryConfirmService;
     }
 
     @Operation(summary = "最近删除列表", description = "只返回本人、且还在恢复期内的记录")
@@ -60,11 +65,31 @@ public class RecycleBinController {
         return Result.success(recycleBinService.restore(id));
     }
 
-    @Operation(summary = "彻底删除", description = "不可恢复；只删处于逻辑删除状态的原记录，已被恢复的不受影响")
+    /**
+     * 彻底删除 —— <b>不可恢复，必须二次确认</b>。
+     * <p>
+     * 这是用户端唯一一个「删了真没了」的操作：恢复只是把 {@code deleted} 改回去，
+     * 而这个是把行物理删掉。所以要求请求头带二次确认凭据：
+     * <ul>
+     *   <li>{@code X-Confirm-Token}：先调 {@code POST /app/auth/confirm-token}（验密码换一次性凭据），
+     *       再把凭据放进来。<b>推荐这种方式</b> —— 凭据一次性，密码不会跟着每个请求跑</li>
+     *   <li>{@code X-Confirm-Password}：直接把当前密码放请求头，每次都要传</li>
+     * </ul>
+     * <p>
+     * ⚠️ <b>为什么前端弹个「确定要删吗」的窗口不算数</b>：
+     * 那个弹窗只存在于正常用户的浏览器里，攻击者拿到 token 后写个脚本直接调接口就绕过了。
+     * 真正的防护在后端 —— 必须能证明「操作的人知道密码」。
+     */
+    @Operation(summary = "彻底删除",
+            description = "不可恢复；需要二次确认（X-Confirm-Token 或 X-Confirm-Password 请求头）。"
+                    + "缺凭据返回 40304，凭据错误或过期返回 40305")
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('app:recycle:write')")
-    public Result<Void> purge(@PathVariable Long id) {
+    public Result<Void> purge(@PathVariable Long id, HttpServletRequest request) {
+        // 放在最前面：凭据不过就不该碰数据库
+        secondaryConfirmService.validateAndConsume(request);
         recycleBinService.purge(id);
+        log.info("彻底删除回收站记录 id={}", id);
         return Result.success();
     }
 }

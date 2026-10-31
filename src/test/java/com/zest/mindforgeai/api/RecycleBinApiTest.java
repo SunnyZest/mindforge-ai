@@ -1,5 +1,6 @@
 package com.zest.mindforgeai.api;
 
+import com.zest.mindforgeai.common.constant.ErrorCode;
 import com.zest.mindforgeai.support.AbstractApiTest;
 import com.zest.mindforgeai.support.ApiResult;
 import com.zest.mindforgeai.task.FilePurgeTask;
@@ -36,6 +37,18 @@ class RecycleBinApiTest extends AbstractApiTest {
     private RecycleBinCleanupTask recycleBinCleanupTask;
 
     private static final String BASE = "/app/recycle-bin";
+
+    /** 彻底删除要二次确认 —— 用「直接带密码」这种最省事的方式 */
+    private Map<String, String> confirmByPassword() {
+        return Map.of("X-Confirm-Password", TEST_PASSWORD);
+    }
+
+    /** 走完整流程：验密码换一次性凭据 → 放请求头 */
+    private Map<String, String> confirmByToken(String token) {
+        String confirmToken = post("/app/auth/confirm-token", token,
+                Map.of("password", TEST_PASSWORD)).assertSuccess().str("confirmToken");
+        return Map.of("X-Confirm-Token", confirmToken);
+    }
 
     private String createOffer(String token, String company) {
         return post("/app/offers", token, Map.of(
@@ -194,7 +207,7 @@ class RecycleBinApiTest extends AbstractApiTest {
         String offerId = createOffer(token, "拼多多");
         delete("/app/offers/" + offerId, token).assertSuccess();
 
-        delete(BASE + "/" + firstBinId(token), token).assertSuccess();
+        delete(BASE + "/" + firstBinId(token), token, confirmByPassword()).assertSuccess();
 
         assertThat(get("/app/offers/" + offerId, token).isSuccess()).isFalse();
         assertThat(inRecycleBin(token, offerId)).isFalse();
@@ -213,9 +226,63 @@ class RecycleBinApiTest extends AbstractApiTest {
         // 一条正常数据就会被「彻底删除」干掉
         jdbc.update("UPDATE job_offer SET deleted = 0 WHERE id = ?", Long.valueOf(offerId));
 
-        delete(BASE + "/" + binId, token).assertSuccess();
+        delete(BASE + "/" + binId, token, confirmByPassword()).assertSuccess();
 
         get("/app/offers/" + offerId, token).assertSuccess();
+    }
+
+    // ---------------- 彻底删除的二次确认 ----------------
+
+    @Test
+    @DisplayName("彻底删除不带二次确认凭据：40304，且数据没被删")
+    void purgeRequiresConfirmation() {
+        String token = loginAsUser();
+        String offerId = createOffer(token, "得物");
+        delete("/app/offers/" + offerId, token).assertSuccess();
+        String binId = firstBinId(token);
+
+        delete(BASE + "/" + binId, token)
+                .assertCode(ErrorCode.CONFIRM_REQUIRED.getCode());
+
+        // 没删掉：Offer 仍然是逻辑删除状态，回收站里还有这条
+        assertThat(jdbc.queryForObject(
+                "SELECT deleted FROM job_offer WHERE id = ?", Integer.class, Long.valueOf(offerId)))
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("二次确认密码错误：40305，且数据没被删")
+    void purgeRejectsWrongPassword() {
+        String token = loginAsUser();
+        String offerId = createOffer(token, "SHEIN");
+        delete("/app/offers/" + offerId, token).assertSuccess();
+        String binId = firstBinId(token);
+
+        delete(BASE + "/" + binId, token, Map.of("X-Confirm-Password", "not-the-password"))
+                .assertCode(ErrorCode.CONFIRM_FAILED.getCode());
+
+        assertThat(jdbc.queryForObject(
+                "SELECT deleted FROM job_offer WHERE id = ?", Integer.class, Long.valueOf(offerId)))
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("一次性凭据只能用一次（用完再拿同一个凭据调就是 40305）")
+    void confirmTokenIsSingleUse() {
+        String token = loginAsUser();
+        String offerId1 = createOffer(token, "美团");
+        String offerId2 = createOffer(token, "饿了么");
+        delete("/app/offers/" + offerId1, token).assertSuccess();
+        delete("/app/offers/" + offerId2, token).assertSuccess();
+
+        Map<String, String> headers = confirmByToken(token);
+
+        // 第一次用：成功
+        delete(BASE + "/" + firstBinId(token), token, headers).assertSuccess();
+
+        // 第二次拿同一个凭据：已经被消费掉了
+        delete(BASE + "/" + firstBinId(token), token, headers)
+                .assertCode(ErrorCode.CONFIRM_FAILED.getCode());
     }
 
     @Test

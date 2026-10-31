@@ -358,6 +358,26 @@ public abstract class AbstractApiTest {
         return exchange(HttpMethod.DELETE, path, token, null);
     }
 
+    /**
+     * 带自定义请求头的 DELETE。
+     * <p>
+     * 高危操作（如回收站的彻底删除）要求 {@code X-Confirm-Token} /
+     * {@code X-Confirm-Password}，基类原来的 delete 没法加头，所以补这个重载。
+     */
+    protected ApiResult delete(String path, String token, Map<String, String> extraHeaders) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        if (token != null) {
+            headers.setBearerAuth(token);
+        }
+        if (extraHeaders != null) {
+            extraHeaders.forEach(headers::set);
+        }
+        ResponseEntity<JsonNode> response = rest.exchange(
+                path, HttpMethod.DELETE, new HttpEntity<>(null, headers), JsonNode.class);
+        return new ApiResult(response.getStatusCode().value(), response.getBody());
+    }
+
     private ApiResult exchange(HttpMethod method, String path, String token, Object body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
