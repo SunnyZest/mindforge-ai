@@ -51,6 +51,19 @@ public class InterviewReport implements Serializable {
     @Schema(description = "问题解决得分")
     private BigDecimal problemSolvingScore;
 
+    /**
+     * 工程规范得分（0~100）。
+     * <p>
+     * ⚠️ 可空：2026-10-30 之前的报告没有这个维度，历史数据是 NULL。
+     * 不做回填 —— 补分只能重跑模型，成本高且结果不稳定。
+     */
+    @Schema(description = "工程规范得分（0~100）")
+    private BigDecimal engineeringScore;
+
+    /** 岗位契合得分（0~100）。没指定目标岗位时为空 —— 没有岗位就没有契合度可言 */
+    @Schema(description = "岗位契合得分（0~100）")
+    private BigDecimal jobFitScore;
+
     @Schema(description = "优势（JSON 数组）")
     private String strengthsJson;
 

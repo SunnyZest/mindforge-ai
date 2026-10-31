@@ -242,6 +242,8 @@ class InterviewMistakeApiTest extends AbstractApiTest {
         when(aiServiceClient.buildReport(any())).thenReturn(
                 new AiServiceClient.InterviewReportData(
                         9.9, 7.7, 18.0, 8.0,
+                        // 这两个维度是可空的，错题本用例不关心，给 null 即可
+                        null, null,
                         List.of("表达有条理"),
                         List.of("缓存一致性没答上来"),
                         List.of("复习缓存与数据库的一致性方案"),

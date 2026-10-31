@@ -1148,6 +1148,10 @@ public class AiServiceClient {
                                       Double technicalScore,
                                       Double communicationScore,
                                       Double problemSolvingScore,
+                                      // 工程规范 / 岗位契合：都可空，且允许只给其中一个。
+                                      // 老版本 Python 不返回这两个 key —— @JsonIgnoreProperties 兜着，不会是 null 之外的麻烦
+                                      Double engineeringScore,
+                                      Double jobFitScore,
                                       List<String> strengths,
                                       List<String> weaknesses,
                                       List<String> suggestions,

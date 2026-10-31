@@ -802,6 +802,8 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
                     .setTechnicalScore(toDecimal(data.technicalScore()))
                     .setCommunicationScore(toDecimal(data.communicationScore()))
                     .setProblemSolvingScore(toDecimal(data.problemSolvingScore()))
+                    .setEngineeringScore(toDecimal(data.engineeringScore()))
+                    .setJobFitScore(toDecimal(data.jobFitScore()))
                     .setStrengthsJson(toJson(data.strengths()))
                     .setWeaknessesJson(toJson(data.weaknesses()))
                     .setSuggestionsJson(toJson(data.suggestions()))
@@ -998,6 +1000,8 @@ public class InterviewServiceImpl extends ServiceImpl<InterviewMapper, Interview
         vo.setTechnicalScore(toDouble(report.getTechnicalScore()));
         vo.setCommunicationScore(toDouble(report.getCommunicationScore()));
         vo.setProblemSolvingScore(toDouble(report.getProblemSolvingScore()));
+        vo.setEngineeringScore(toDouble(report.getEngineeringScore()));
+        vo.setJobFitScore(toDouble(report.getJobFitScore()));
         vo.setStrengths(parseStringList(report.getStrengthsJson()));
         vo.setWeaknesses(parseStringList(report.getWeaknessesJson()));
         vo.setSuggestions(parseStringList(report.getSuggestionsJson()));

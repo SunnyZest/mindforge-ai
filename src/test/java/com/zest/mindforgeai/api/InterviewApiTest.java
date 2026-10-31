@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -89,6 +90,7 @@ class InterviewApiTest extends AbstractApiTest {
         when(aiServiceClient.buildReport(any())).thenReturn(
                 new AiServiceClient.InterviewReportData(
                         9.9, 7.7, 18.0, 8.0,
+                        6.5, 8.8,
                         List.of("表达有条理"),
                         List.of("缓存一致性没答上来"),
                         List.of("复习缓存与数据库的一致性方案"),
@@ -288,6 +290,42 @@ class InterviewApiTest extends AbstractApiTest {
                 Integer.class, interviewId)).isEqualTo(1);
         assertThat(report.data().path("overallScore").asDouble()).isEqualTo(9.9);
         assertThat(report.data().path("reportText").asText()).isNotBlank();
+
+        // 2026-10-30 新增的两个维度：必须一路落到库里再原样返回，
+        // 不能只有 VO 有值而库里是 NULL（那样历史查询会前后不一致）
+        assertThat(report.data().path("engineeringScore").asDouble()).isEqualTo(6.5);
+        assertThat(report.data().path("jobFitScore").asDouble()).isEqualTo(8.8);
+        assertThat(jdbc.queryForObject(
+                "SELECT engineering_score FROM interview_report WHERE interview_id = ?",
+                BigDecimal.class, interviewId)).isEqualByComparingTo("6.5");
+        assertThat(jdbc.queryForObject(
+                "SELECT job_fit_score FROM interview_report WHERE interview_id = ?",
+                BigDecimal.class, interviewId)).isEqualByComparingTo("8.8");
+    }
+
+    @Test
+    @DisplayName("历史报告（两列为 NULL）照常返回：这两个字段为 null，总分仍是原值")
+    void historicalReportStillWorks() {
+        // 模拟 2026-10-30 之前生成的报告：行存在，但没有这两个维度。
+        // 这条守的是「前端拿到 null 不会崩」和「老总分不被重算」两件事。
+        prepareAnsweredInterview();
+        stubReport();
+        post("/app/interviews/" + interviewId + "/finish", token, null).assertSuccess();
+
+        jdbc.update("UPDATE interview_report SET engineering_score = NULL, job_fit_score = NULL "
+                + "WHERE interview_id = ?", interviewId);
+
+        ApiResult report = get("/app/interviews/" + interviewId + "/report", token)
+                .assertSuccess().assertCamelCase();
+
+        // 注意：项目没配 NON_NULL，null 字段照常出现在 JSON 里（值是 null 而不是字段缺失）。
+        // 所以这里用 hasNonNull 判断「没有非 null 值」—— 比 isNull() 更准确，
+        // 它同时挡住「字段缺失」和「字段为 null」两种情况。
+        assertThat(report.data().hasNonNull("engineeringScore"))
+                .as("历史报告不该凭空冒出一个工程规范分").isFalse();
+        assertThat(report.data().hasNonNull("jobFitScore")).isFalse();
+        // 老总分保持原值，不因为缺维度被重算
+        assertThat(report.data().path("overallScore").asDouble()).isEqualTo(9.9);
     }
 
     @Test
