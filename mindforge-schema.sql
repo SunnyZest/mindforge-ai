@@ -125,10 +125,17 @@ CREATE TABLE `sys_refresh_token` (
   `expires_at` datetime NOT NULL,
   `revoked_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `session_id` bigint DEFAULT NULL COMMENT '会话 id：一次登录一个，refresh 轮转时继承（老数据为 NULL）',
+  `end_type` varchar(16) DEFAULT NULL COMMENT '登录端：APP 用户端 / ADMIN 管理端',
+  `ip` varchar(64) DEFAULT NULL COMMENT '登录时的客户端 IP',
+  `user_agent` varchar(512) DEFAULT NULL COMMENT 'UA 原文；展示时由 UserAgentParser 粗解析成「Chrome / Windows」',
+  `last_active_at` datetime DEFAULT NULL COMMENT '最近活跃时间，每次刷新令牌时更新',
+  `revoked_reason` varchar(16) DEFAULT NULL COMMENT '作废原因：ROTATED 轮转 / LOGOUT 登出 / KICKED 被踢 / REVOKE_OTHERS 退出其他设备 / REVOKE_ALL 全撤',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_refresh_token_hash` (`token_hash`),
   KEY `idx_refresh_user` (`user_id`),
-  KEY `idx_refresh_expire` (`expires_at`)
+  KEY `idx_refresh_expire` (`expires_at`),
+  KEY `idx_refresh_session` (`session_id`)
 ) ENGINE=InnoDB COMMENT='刷新令牌表';
 
 
@@ -502,6 +509,8 @@ CREATE TABLE `interview_report` (
   `technical_score` decimal(6,2) DEFAULT NULL COMMENT '技术能力得分',
   `communication_score` decimal(6,2) DEFAULT NULL COMMENT '沟通表达得分',
   `problem_solving_score` decimal(6,2) DEFAULT NULL COMMENT '问题解决得分',
+  `engineering_score` decimal(6,2) DEFAULT NULL COMMENT '工程规范得分（2026-10-30 新增，历史为 NULL）',
+  `job_fit_score` decimal(6,2) DEFAULT NULL COMMENT '岗位契合得分（未指定目标岗位时为 NULL）',
   `strengths_json` json DEFAULT NULL COMMENT '优势（数组）',
   `weaknesses_json` json DEFAULT NULL COMMENT '不足（数组）',
   `suggestions_json` json DEFAULT NULL COMMENT '改进建议（数组）',

@@ -14,6 +14,89 @@
 
 
 -- ============================================================
+-- 2026-10-30  面试报告补「工程规范 / 岗位契合」两个维度
+--
+-- 背景：前端报告页的能力雷达图原本画 5 个角，但后端只给 3 个分数 ——
+--       另外两个是前端自己编的（工程规范 = 技术分与问题解决分的平均，岗位契合直接复用总分）。
+--       图上五个角看起来都评估过，实际只有三个是模型给的，会误导用户判断自己哪块弱。
+--
+-- 两个字段都可空，且允许只给其中一个：
+--   engineering_score  工程规范：代码组织、边界与异常处理、可维护性、测试意识。
+--                      刻意和技术分分开 —— 技术分看「会不会」，工程分看「做得规不规范」。
+--   job_fit_score      岗位契合：与目标岗位的匹配度。
+--                      ★ 没指定目标岗位时必须为 NULL —— 没有岗位就没有契合度，给个数字等于编。
+--
+-- ⚠️ 不做历史回填：旧报告没有这两个分项，补分只能重跑模型（成本高、结果不稳定）。
+--    旧报告保持 3 维展示 + 原 overall_score 值，不重算。
+--
+-- ⚠️ overall_score 的口径也变了（三维加权 → 五维加权，且由 Python 侧算而不是模型算），
+--    但那是 Python 的事，Java 侧字段和类型都没变。
+-- ============================================================
+
+ALTER TABLE `interview_report`
+    ADD COLUMN `engineering_score` decimal(6,2) DEFAULT NULL
+        COMMENT '工程规范得分（历史数据为 NULL）'
+        AFTER `problem_solving_score`,
+    ADD COLUMN `job_fit_score` decimal(6,2) DEFAULT NULL
+        COMMENT '岗位契合得分（未指定目标岗位时为 NULL）'
+        AFTER `engineering_score`;
+
+
+-- ============================================================
+-- 2026-10-30  sys_refresh_token 补会话字段（登录设备管理）
+--
+-- 背景：要给用户一个「我的登录设备」列表，能看有哪些设备登着、能踢掉可疑的。
+--       原来这张表只存 token 哈希，分不清「哪台设备」——
+--       而且每次刷新都轮转（旧的作废、新的插入），一个设备登一天会产生 48 条记录
+--       （access token 30 分钟一刷），直接拿来展示会是一堆重复项。
+--
+-- 设计：
+--   session_id    一次登录 = 一个会话，refresh 轮转时【继承】同一个 session_id。
+--                 列表按 session_id 聚合，只显示每个会话最新的一条。
+--                 雪花 id，登录时生成。
+--   end_type      登录端（APP 用户端 / ADMIN 管理端）。会话天然属于某一端。
+--   ip / user_agent   登录那一刻的客户端信息，用于展示「在哪登的」。
+--   last_active_at    最近一次刷新令牌的时间 —— 比 created_at 更能反映「还活着」。
+--
+-- ⚠️ 五列都允许 NULL：存量 token 没有这些信息，而且 14 天内自然过期，不值得迁移。
+--    代码里遇到 session_id 为 NULL 的老 token 会当成「新会话」重新生成，
+--    所以老用户刷新一次就自动补上了。
+--
+-- ★ 为什么还要 revoked_reason：
+--   原来「token 被作废」只有一种含义 —— 轮转（用过一次就该失效），
+--   所以 refresh() 一见到已撤销的 token 就判定为泄露，直接撤销该用户【全部】会话。
+--   加了「踢设备」之后这个假设不成立了：
+--   用户从 A 设备踢掉 B，B 的客户端并不知道，下次刷新仍会用那个已撤销的 token ——
+--   如果还按「泄露」处理，就会把 A 也一起撤销，等于「踢别人把自己踢下线」。
+--   所以作废原因要分开：只有 ROTATED 才触发重放检测，其余（登出/被踢）只是拒绝这一次。
+--
+-- ⚠️ 部署顺序：先跑本段 DDL，再启服务。实体里已有这些字段，
+--    库缺列会直接 Unknown column 'session_id'。
+-- ============================================================
+
+ALTER TABLE `sys_refresh_token`
+    ADD COLUMN `session_id` bigint DEFAULT NULL
+        COMMENT '会话 id：一次登录一个，refresh 轮转时继承（老数据为 NULL）'
+        AFTER `created_at`,
+    ADD COLUMN `end_type` varchar(16) DEFAULT NULL
+        COMMENT '登录端：APP 用户端 / ADMIN 管理端'
+        AFTER `session_id`,
+    ADD COLUMN `ip` varchar(64) DEFAULT NULL
+        COMMENT '登录时的客户端 IP'
+        AFTER `end_type`,
+    ADD COLUMN `user_agent` varchar(512) DEFAULT NULL
+        COMMENT 'UA 原文；展示时由 UserAgentParser 粗解析'
+        AFTER `ip`,
+    ADD COLUMN `last_active_at` datetime DEFAULT NULL
+        COMMENT '最近活跃时间，每次刷新令牌时更新'
+        AFTER `user_agent`,
+    ADD COLUMN `revoked_reason` varchar(16) DEFAULT NULL
+        COMMENT '作废原因：ROTATED / LOGOUT / KICKED / REVOKE_OTHERS / REVOKE_ALL'
+        AFTER `revoked_at`,
+    ADD INDEX `idx_refresh_session` (`session_id`);
+
+
+-- ============================================================
 -- 2026-10-28  用户表补「最后登录 IP」
 --
 -- 背景：管理端用户详情要能看出「这个人从哪登的」，
