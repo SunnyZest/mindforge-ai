@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class UserProfileApiTest extends AbstractApiTest {
 
     private static final String PROFILE = "/app/user/profile";
-    private static final String PASSWORD = "/app/user/password";
+    private static final String AUTH_PASSWORD = "/app/auth/password";
 
     private String token;
     private Long myUserId;
@@ -199,7 +199,7 @@ class UserProfileApiTest extends AbstractApiTest {
         PwAccount acc = pwAccount();
         String newPassword = "new-998877";
 
-        put(PASSWORD, acc.token(), Map.of("oldPassword", TEST_PASSWORD, "newPassword", newPassword))
+        post(AUTH_PASSWORD, acc.token(), Map.of("oldPassword", TEST_PASSWORD, "newPassword", newPassword))
                 .assertSuccess();
 
         // 旧密码失效
@@ -223,7 +223,7 @@ class UserProfileApiTest extends AbstractApiTest {
         ApiResult first = loginRaw("/app/auth/login", "pw_test", TEST_PASSWORD).assertSuccess();
         String oldRefresh = first.str("refreshToken");
 
-        put(PASSWORD, acc.token(), Map.of("oldPassword", TEST_PASSWORD, "newPassword", "fresh-123456"))
+        post(AUTH_PASSWORD, acc.token(), Map.of("oldPassword", TEST_PASSWORD, "newPassword", "fresh-123456"))
                 .assertSuccess();
 
         // 旧 refreshToken 不能再换了（旋转机制下重放本身也会被拒）
@@ -241,7 +241,7 @@ class UserProfileApiTest extends AbstractApiTest {
     @DisplayName("旧密码不对 → 40001，密码没被动")
     void wrongOldPasswordIsRejected() {
         PwAccount acc = pwAccount();
-        put(PASSWORD, acc.token(), Map.of("oldPassword", "wrong-old", "newPassword", "fresh-123456"))
+        post(AUTH_PASSWORD, acc.token(), Map.of("oldPassword", "wrong-old", "newPassword", "fresh-123456"))
                 .assertCode(ErrorCode.PARAM_INVALID.getCode());
 
         // 密码没被改掉
@@ -252,7 +252,7 @@ class UserProfileApiTest extends AbstractApiTest {
     @DisplayName("新密码和旧密码一样 → 40001（否则「改了密码」是个假动作）")
     void samePasswordIsRejected() {
         PwAccount acc = pwAccount();
-        put(PASSWORD, acc.token(), Map.of("oldPassword", TEST_PASSWORD, "newPassword", TEST_PASSWORD))
+        post(AUTH_PASSWORD, acc.token(), Map.of("oldPassword", TEST_PASSWORD, "newPassword", TEST_PASSWORD))
                 .assertCode(ErrorCode.PARAM_INVALID.getCode());
     }
 
@@ -260,31 +260,10 @@ class UserProfileApiTest extends AbstractApiTest {
     @DisplayName("新密码少于 6 位 / 旧密码为空 → 40001")
     void passwordIsValidated() {
         PwAccount acc = pwAccount();
-        put(PASSWORD, acc.token(), Map.of("oldPassword", TEST_PASSWORD, "newPassword", "123"))
+        post(AUTH_PASSWORD, acc.token(), Map.of("oldPassword", TEST_PASSWORD, "newPassword", "123"))
                 .assertCode(ErrorCode.PARAM_INVALID.getCode());
-        put(PASSWORD, acc.token(), Map.of("oldPassword", " ", "newPassword", "fresh-123456"))
+        post(AUTH_PASSWORD, acc.token(), Map.of("oldPassword", " ", "newPassword", "fresh-123456"))
                 .assertCode(ErrorCode.PARAM_INVALID.getCode());
-    }
-
-    @Test
-    @DisplayName("POST /app/user/password 与 PUT 行为一致（两个入口同一套逻辑）")
-    void postPasswordAliasWorks() {
-        PwAccount acc = pwAccount();
-        post(PASSWORD, acc.token(), Map.of("oldPassword", TEST_PASSWORD, "newPassword", "alias-123456"))
-                .assertSuccess();
-
-        assertThat(loginRaw("/app/auth/login", "pw_test", "alias-123456").isSuccess()).isTrue();
-    }
-
-    @Test
-    @DisplayName("/app/auth/password 也是同一个改密码入口")
-    void authPasswordEndpointWorks() {
-        PwAccount acc = pwAccount();
-        post("/app/auth/password", acc.token(),
-                        Map.of("oldPassword", TEST_PASSWORD, "newPassword", "authp-123456"))
-                .assertSuccess();
-
-        assertThat(loginRaw("/app/auth/login", "pw_test", "authp-123456").isSuccess()).isTrue();
     }
 
     // ------------------------------------------------------------ 注册

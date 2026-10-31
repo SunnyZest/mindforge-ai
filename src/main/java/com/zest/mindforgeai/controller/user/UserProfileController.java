@@ -1,15 +1,12 @@
 package com.zest.mindforgeai.controller.user;
 
 import com.zest.mindforgeai.common.result.Result;
-import com.zest.mindforgeai.pojo.dto.ChangePasswordDTO;
 import com.zest.mindforgeai.pojo.dto.UserProfileUpdateDTO;
 import com.zest.mindforgeai.pojo.vo.UserProfileVO;
 import com.zest.mindforgeai.pojo.vo.UserPublicVO;
 import com.zest.mindforgeai.service.UserProfileService;
-import com.zest.mindforgeai.utils.ClientIpResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,12 +43,9 @@ import org.springframework.web.multipart.MultipartFile;
 public class UserProfileController {
 
     private final UserProfileService userProfileService;
-    private final ClientIpResolver ipResolver;
 
-    public UserProfileController(UserProfileService userProfileService,
-                                  ClientIpResolver ipResolver) {
+    public UserProfileController(UserProfileService userProfileService) {
         this.userProfileService = userProfileService;
-        this.ipResolver = ipResolver;
     }
 
     @Operation(summary = "获取个人资料")
@@ -95,25 +89,4 @@ public class UserProfileController {
         return Result.success(userProfileService.getPublicProfile(id));
     }
 
-    /**
-     * 用户独立修改自身密码（文档 §十二）。
-     * <p>
-     * 支持标准 RESTful 的 PUT 和 POST。
-     * 会记录客户端 IP 并受到防爆破锁定保护（5 次锁定 30 分钟）。
-     */
-    @Operation(summary = "用户独立修改密码（PUT）")
-    @PutMapping("/user/password")
-    public Result<Void> changePasswordPut(@Valid @RequestBody ChangePasswordDTO dto, HttpServletRequest request) {
-        String clientIp = ipResolver.resolve(request);
-        userProfileService.changePassword(dto, clientIp);
-        return Result.success();
-    }
-
-    @Operation(summary = "用户独立修改密码（POST）")
-    @PostMapping("/user/password")
-    public Result<Void> changePasswordPost(@Valid @RequestBody ChangePasswordDTO dto, HttpServletRequest request) {
-        String clientIp = ipResolver.resolve(request);
-        userProfileService.changePassword(dto, clientIp);
-        return Result.success();
-    }
 }
