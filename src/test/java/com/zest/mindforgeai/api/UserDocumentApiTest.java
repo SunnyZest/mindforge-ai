@@ -18,8 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>这一组此前完全没测试，而它踩的坑都很有代表性：
  * <ul>
  *   <li><b>上传到官方智库必须被拒</b> —— 否则普通用户能往所有用户共享的库里塞东西；</li>
- *   <li><b>下载是 302 跳预签名 URL</b>，URL 过了有效期就没用了，所以 DocumentVO 里
- *       不该带可点的下载地址（断言里顺带确认没有这种字段）；</li>
+ *   <li><b>下载地址只在详情接口给</b>（预签名 URL，1 小时有效）—— 前端拿到后直接导航过去，
+ *       因为 {@code window.open} 带不上 Authorization 头，走接口必然 401。
+ *       列表不带这个字段：一页 20 条，每条都查一次 sys_file 就是 N+1；</li>
  *   <li><b>删除只做逻辑删除</b>，OSS 对象留恢复窗口，行还在、只是查不到；</li>
  *   <li>官方库的文档对普通用户<b>只读</b>（看得到、下得了、删不得、重试不得）。</li>
  * </ul>
@@ -64,8 +65,9 @@ class UserDocumentApiTest extends AbstractApiTest {
         assertThat(res.str("parseStatus")).isEqualTo("PENDING");
         assertThat(res.str("chunkStatus")).isEqualTo("PENDING");
         assertThat(res.str("vectorStatus")).isEqualTo("PENDING");
-        // 说明：VO 里不带下载地址 —— 预签名 URL 会过期，存不了也返不了
-        assertThat(res.data().path("downloadUrl").isMissingNode()).isTrue();
+        // 上传响应不带下载地址（字段存在但为 null）—— 地址只在详情接口填。
+        // 用 hasNonNull 而不是 isNull：字段缺失和字段为 null 两种情况都算「没给」。
+        assertThat(res.data().hasNonNull("downloadUrl")).isFalse();
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM document WHERE knowledge_base_id = ? AND deleted = 0",
@@ -215,6 +217,61 @@ class UserDocumentApiTest extends AbstractApiTest {
         // 轻量：不该把文件大小、创建时间这些详情字段带上
         assertThat(res.data().path("fileSize").isMissingNode()).isTrue();
         assertThat(res.data().path("createdAt").isMissingNode()).isTrue();
+    }
+
+    @Test
+    @DisplayName("详情：有原文件的文档带预签名下载地址（前端直接导航，不需要任何请求头）")
+    void detailCarriesPresignedDownloadUrl() {
+        long kbId = createKb("我的笔记库", myUserId, 0);
+        long docId = createDoc(kbId, myUserId, "a.md");
+        long fileId = createSysFile(myUserId, "doc/a.md");
+        jdbc.update("UPDATE document SET file_id = ? WHERE id = ?", fileId, docId);
+
+        var data = get("/app/documents/" + docId, token).assertSuccess().data();
+
+        // 测试环境把 presignedUrl 打了桩（AbstractApiTest 里统一 mock），
+        // 所以这里验的是「详情把地址填进了 downloadUrl」，而不是签名本身对不对 ——
+        // 真实环境下这个值会是带 Signature= 参数的 OSS 地址。
+        assertThat(data.path("downloadUrl").asText())
+                .isEqualTo("https://test.invalid/mock-object");
+        // 其余字段照常
+        assertThat(data.path("fileName").asText()).isEqualTo("a.md");
+    }
+
+    @Test
+    @DisplayName("详情：网页导入的文档没有原文件，downloadUrl 为 null 且详情不报错")
+    void detailWithoutFileHasNullDownloadUrl() {
+        long kbId = createKb("我的笔记库", myUserId, 0);
+        // createDoc 不设 file_id —— 正是网页导入的样子
+        long docId = createDoc(kbId, myUserId, "网页导入.md");
+
+        var data = get("/app/documents/" + docId, token).assertSuccess().data();
+
+        assertThat(data.hasNonNull("downloadUrl")).isFalse();
+        // ★ 关键：没有下载地址不能影响详情其余字段 ——
+        //   用户这时更需要看到文档本身的状态
+        assertThat(data.path("fileName").asText()).isEqualTo("网页导入.md");
+        assertThat(data.path("status").asText()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("列表：不带 downloadUrl —— 否则每条都查一次 sys_file 就是 N+1")
+    void listDoesNotCarryDownloadUrl() {
+        long kbId = createKb("我的笔记库", myUserId, 0);
+        long d1 = createDoc(kbId, myUserId, "a.md");
+        long d2 = createDoc(kbId, myUserId, "b.md");
+        // 两条都关联真实文件：如果 toVO 里填了地址，这里就是 2 次额外查询
+        jdbc.update("UPDATE document SET file_id = ? WHERE id = ?",
+                createSysFile(myUserId, "doc/a.md"), d1);
+        jdbc.update("UPDATE document SET file_id = ? WHERE id = ?",
+                createSysFile(myUserId, "doc/b.md"), d2);
+
+        var records = page(kbId, null).assertSuccess().data().path("records");
+        assertThat(records.size()).isEqualTo(2);
+        for (var r : records) {
+            assertThat(r.hasNonNull("downloadUrl"))
+                    .as("列表不该带下载地址（详情才有）").isFalse();
+        }
     }
 
     @Test

@@ -58,4 +58,16 @@ public class DocumentVO {
 
     @Schema(description = "上传时间")
     private LocalDateTime createdAt;
+
+    /**
+     * 预签名下载地址，1 小时有效。
+     * <p>
+     * ⚠️ <b>只有详情接口会填</b>（{@code DocumentServiceImpl.getDetail}）。列表接口这个字段恒为 null ——
+     * 列表一页 20 条，每条都查一次 {@code sys_file} 就是 N+1，而列表页并不需要下载地址。
+     * <p>
+     * 为 null 的两种情况：文档没有关联文件（网页导入的没有 fileId）；或者生成签名时抛异常
+     * （存储没配好）—— 后者刻意不上抛，用户这时更需要看到文档的解析状态。
+     */
+    @Schema(description = "预签名下载地址（1 小时有效）；网页导入的文档没有文件对象，为 null")
+    private String downloadUrl;
 }

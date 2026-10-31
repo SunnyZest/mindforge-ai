@@ -159,7 +159,35 @@ public class DocumentServiceImpl extends ServiceImpl<DocumentMapper, Document> i
 
     @Override
     public DocumentVO getDetail(Long documentId) {
-        return toVO(getAccessible(documentId));
+        Document doc = getAccessible(documentId);
+        DocumentVO vo = toVO(doc);
+        // 下载地址只在详情填 —— 列表共用 toVO，放进去就是 N+1（见下面的方法注释）
+        vo.setDownloadUrl(resolveDownloadUrl(doc));
+        return vo;
+    }
+
+    /**
+     * 预签名下载地址。
+     * <p>
+     * ⚠️ 只在详情里填，<b>不要</b>放进 {@link #toVO} —— 列表一页 20 条，
+     * 每条都要 {@code getById} 一次 {@code sys_file}，就是 20 次额外查询（N+1），
+     * 而列表页并不需要这个地址。管理端 {@code AdminDocumentServiceImpl.fillDetailExtras}
+     * 是同样的取舍。
+     * <p>
+     * ⚠️ 生成失败只打日志、返回 null，不要往上抛 —— 存储没配好时，
+     * 用户更需要看到文档的解析状态，而不是整页 500。
+     */
+    private String resolveDownloadUrl(Document doc) {
+        if (doc.getFileId() == null) {
+            return null;   // 网页导入的文档没有文件对象
+        }
+        try {
+            SysFile file = fileService.getById(doc.getFileId());
+            return file == null ? null : fileService.downloadUrl(file);
+        } catch (Exception e) {
+            log.warn("生成文档下载地址失败 documentId={} fileId={}", doc.getId(), doc.getFileId(), e);
+            return null;
+        }
     }
 
     @Override
