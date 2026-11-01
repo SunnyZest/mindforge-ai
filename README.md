@@ -63,14 +63,28 @@ RAG 回答带引用来源，能点回原文。网页内容可以直接导入，�
 
 ## 快速开始
 
-项目由三个仓库组成，需要并列放在同一父目录：
+项目由三个仓库组成，需要并列放在同一父目录。
+
+| 仓库 | 负责什么 | 地址 |
+| :--- | :--- | :--- |
+| `mindforge-ai` | Java 后端 —— 业务数据、权限、流程编排 | 当前仓库 |
+| `mindforge-ai-service` | Python AI 服务 —— 文档解析、向量化、RAG、模型调用 | [SunnyZest/mindforge-ai-service](https://github.com/SunnyZest/mindforge-ai-service) |
+| `mindforge-web` | Vue 前端 —— 用户端与管理端（pnpm workspace 一仓两端） | [SunnyZest/mindforge-web](https://github.com/SunnyZest/mindforge-web) |
+
+```bash
+git clone https://github.com/SunnyZest/mindforge-ai-service.git
+git clone https://github.com/SunnyZest/mindforge-web.git
+```
 
 ```
 mindforge-workspace/
 ├── mindforge-ai/            # Java 后端（本仓库）
 ├── mindforge-ai-service/    # Python AI 服务
-└── mindforge/               # Vue 前端（用户端 + 管理端）
+└── mindforge-web/           # Vue 前端
 ```
+
+> 三个目录必须并列 —— `docker-compose.yml` 里 Python 服务的构建上下文默认是
+> `../mindforge-ai-service`，目录名或层级不同的话要改 `AI_SERVICE_PATH`。
 
 ### Docker Compose
 
@@ -101,7 +115,7 @@ cp .env.example .env      # 填 JAVA_BASE_URL / JAVA_SERVICE_TOKEN / DASHSCOPE_A
 .venv/Scripts/python.exe -m uvicorn app.main:app --port 8000 --reload
 
 # 前端 :5173 / :5174
-cd mindforge && corepack enable pnpm && pnpm install && pnpm dev:user
+cd mindforge-web && corepack enable pnpm && pnpm install && pnpm dev:user
 ```
 
 数据库和 JWT 密钥在 `src/main/resources/application-dev.yml`（已 gitignore，
