@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    SpotBugs 排除规则。
+
+    分两类：
+      ① 全项目排除 EI_EXPOSE_REP / EI_EXPOSE_REP2
+         这是「getter/setter 直接暴露可变对象」。本项目的 DTO/VO/Service 返回值
+         大量沿用这种写法，属于既有设计，不是缺陷；要收敛应该从 DTO 层统一改，
+         不适合用静态检查零散地卡。
+      ② 基线排除：接入静态检查时已存在的 10 条历史问题，先记录、不阻断构建。
+         每修掉一条就从这里删一条，不要「只删代码、不删过滤」。
+
+    以后新增的 Medium/High 问题都会被构建拦住，不会因为这几条基线而被放过。
+-->
+<FindBugsFilter>
+
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- 基线（历史问题，待清零） -->
+
+    <!-- Integer 拆箱后立刻装箱；纯性能提示，不影响正确性 -->
+    <Match>
+        <Class name="com.zest.mindforgeai.service.impl.AdminAiModelServiceImpl"/>
+        <Bug pattern="BX_UNBOXING_IMMEDIATELY_REBOXED"/>
+    </Match>
+    <Match>
+        <Class name="com.zest.mindforgeai.service.impl.InterviewServiceImpl"/>
+        <Bug pattern="BX_UNBOXING_IMMEDIATELY_REBOXED"/>
+    </Match>
+    <Match>
+        <Class name="com.zest.mindforgeai.service.impl.OfferServiceImpl"/>
+        <Bug pattern="BX_UNBOXING_IMMEDIATELY_REBOXED"/>
+    </Match>
+    <Match>
+        <Class name="com.zest.mindforgeai.service.impl.AdminUserServiceImpl"/>
+        <Bug pattern="BX_UNBOXING_IMMEDIATELY_REBOXED"/>
+    </Match>
+    <Match>
+        <Class name="com.zest.mindforgeai.pojo.vo.UserProfileVO"/>
+        <Bug pattern="BX_UNBOXING_IMMEDIATELY_REBOXED"/>
+    </Match>
+
+    <!-- 格式化串里用 \n 而不是 %n，跨平台换行差异 -->
+    <Match>
+        <Class name="com.zest.mindforgeai.service.impl.AdminDocumentServiceImpl"/>
+        <Bug pattern="VA_FORMAT_STRING_USES_NEWLINE"/>
+    </Match>
+    <Match>
+        <Class name="com.zest.mindforgeai.service.impl.EmailVerificationCodeSender"/>
+        <Bug pattern="VA_FORMAT_STRING_USES_NEWLINE"/>
+    </Match>
+    <Match>
+        <Class name="com.zest.mindforgeai.service.impl.ReminderMailSender"/>
+        <Bug pattern="VA_FORMAT_STRING_USES_NEWLINE"/>
+    </Match>
+
+    <!-- 局部变量只用于触发归属校验、赋值后未再使用 -->
+    <Match>
+        <Class name="com.zest.mindforgeai.service.impl.AtsScoreServiceImpl"/>
+        <Bug pattern="DLS_DEAD_LOCAL_STORE"/>
+    </Match>
+
+    <!--
+        构造器里校验配置并抛异常。Spring 注入场景下这是刻意的 fail-fast，
+        改成工厂方法会牵动调用方，故先按基线保留。
+    -->
+    <Match>
+        <Class name="com.zest.mindforgeai.utils.AesCipher"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
+    <Match>
+        <Class name="com.zest.mindforgeai.utils.JwtUtil"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
+    <Match>
+        <Class name="com.zest.mindforgeai.service.impl.ReminderMailSender"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
+
+</FindBugsFilter>

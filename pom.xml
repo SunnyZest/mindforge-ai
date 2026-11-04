@@ -35,6 +35,8 @@
         <druid>1.2.24</druid>
         <aliyun-oss.version>3.18.5</aliyun-oss.version>
         <openhtmltopdf.version>1.0.10</openhtmltopdf.version>
+        <jacoco.version>0.8.12</jacoco.version>
+        <spotbugs.version>4.9.3.0</spotbugs.version>
     </properties>
 
     <dependencies>
@@ -244,6 +246,60 @@
                                 </path>
                             </annotationProcessorPaths>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--
+                覆盖率报表：只在 verify 阶段生成报告，不设阈值。
+                理由：先把「有数字」建起来，阈值等覆盖率稳定后再加，
+                否则第一天就会因为一堆历史空白把构建打红。
+                报告位置：target/site/jacoco/index.html
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--
+                静态检查：threshold=Medium，只拦住 Medium/High 级别的问题。
+                EI_EXPOSE_REP / EI_EXPOSE_REP2 属于「getter 返回可变对象」，本项目的
+                DTO/VO/Service 大量使用这种写法，属于既有设计，统一在
+                config/spotbugs-exclude.xml 里排除；另有 10 条历史问题作为基线
+                也一并排除，清掉一条就从过滤文件里删一条，不要只删不过滤。
+            -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>${spotbugs.version}</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Medium</threshold>
+                    <excludeFilterFile>${project.basedir}/config/spotbugs-exclude.xml</excludeFilterFile>
+                    <failOnError>true</failOnError>
+                    <xmlOutput>true</xmlOutput>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>
