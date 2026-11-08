@@ -1,0 +1,67 @@
+spring:
+  thymeleaf:
+    # 开发期关掉模板缓存，改 resume/classic.html 不用重启服务
+    cache: false
+
+mindforge:
+  # Redis：限流计数 + 登录失败计数。
+  redis:
+    # redis ip
+    host: 127.0.0.1
+    # 端口
+    port: 6379
+    # 密码
+    password:
+    # 数据库索引
+    database: 0
+  datasource:
+    # mysql
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: localhost
+    port: 3306
+    # 数据库名
+    database: mindforge
+    # 登陆账号
+    username:
+    # 密码
+    password:
+  jwt:
+    # jwt密钥 生成 HS256 密钥（Base64）
+    secret-prop:
+    # token过期时间
+    access-token-expire-minutes-prop: 30
+    # token刷新天数
+    refresh-token-expire-days-prop: 14
+  # 阿里云oss
+  storage:
+    type: OSS
+    oss:
+      endpoint:
+      bucket:
+      access-key-id:
+      access-key-secret:
+  # AI 模型配置里 API Key 的加密密钥（AES-256）。
+  # ⚠️ 换了这把密钥，库里已有的 Key 密文就解不开了，需要重新录入。
+  ai-config:
+    secret-key:
+  # 调 Python AI 服务。service-token 必须和 Python 的 JAVA_SERVICE_TOKEN 一致 ——
+  # 复用 internal 那个值，两边本来就是同一个令牌。
+  ai-service:
+    service-token:
+  internal:
+    service-token:     # Java 和 Python 两边配成一样，Python 放 X-Service-Token 请求头
+
+  # 数据保留策略：清理「逻辑删了、但从来没进过回收站」的数据（按表 + 时间）。
+  #
+  # ★ 默认关闭、默认不配任何表 —— 这是会物理删数据的任务，必须由人显式开启。
+  # ★ 回收站覆盖的 8 张表（job / job_offer / job_event / interview / conversation /
+  #   resume / knowledge_base / document）不要配进来，它们由 RecycleBinCleanupTask 管，
+  #   两个任务处理同一张表会打架。
+  # ★ user / sys_role 永远不能配：用户名、角色 code 逻辑删除后要【永久占用】，
+  #   物理删了会被别人重新注册。代码里有硬黑名单兜着，配了也会被拒绝并打 warn。
+  retention:
+    enabled: false
+    policies: { }
+    # 示例：
+    # policies:
+    #   some_table: 180     # 表名: 保留天数（deleted = 1 且 updated_at 早于 N 天前才处理）
